@@ -4778,14 +4778,15 @@ main_menu() {
         echo "作者：橄榄"
         echo "版本：1.3"
         echo "首次使用请先输入2进入设置"
-        echo "第一次写脚本，bug很多，如遇到bug随时反馈( *ˊᵕˋ)✩︎‧₊"
+        echo "第一次写脚本，如遇bug请在github上反馈( *ˊᵕˋ)✩︎‧₊"
+        echo "github：https://github.com/Liu-fucheng/Jsonl_monitor"
         echo ""
         echo "===== JSONL自动存档工具 ====="
         echo "1. 启动"
         echo "2. 设置"
-        echo "3. 清除冗余存档"
-        echo "4. 存档全部聊天记录"
-        echo "5. 更新"
+        echo "3. 更新"
+        echo "4. 清除冗余存档"
+        echo "5. 存档全部聊天记录"
         echo "6. 压缩全部聊天存档"
         echo "7. 导入聊天记录进酒馆"
         echo "8. 退出"
@@ -4804,13 +4805,13 @@ main_menu() {
                 settings_menu
                 ;;
             3)
-                cleanup_menu
+                update_script
                 ;;
             4)
-                archive_all_chats
+                cleanup_menu
                 ;;
             5)
-                update_script
+                archive_all_chats
                 ;;
             6)
                 compress_all_chats
@@ -5026,6 +5027,48 @@ start_monitoring() {
     fi
 }
 
+# 修复规则格式
+fix_rule_formats() {
+    local need_save=0
+    
+    # 修复全局规则
+    for i in "${!GLOBAL_RULES[@]}"; do
+        local rule="${GLOBAL_RULES[$i]}"
+        if [[ "$rule" != *":"* ]]; then
+            # 如果规则不包含冒号，解析并重构
+            read -r rule_type params <<< $(parse_rule "$rule")
+            GLOBAL_RULES[$i]="${rule_type}:${params}"
+            need_save=1
+        fi
+    done
+    
+    # 修复角色规则
+    for char_name in "${!CHAR_RULES[@]}"; do
+        local rule="${CHAR_RULES[$char_name]}"
+        if [[ "$rule" != *":"* ]]; then
+            # 如果规则不包含冒号，解析并重构
+            read -r rule_type params <<< $(parse_rule "$rule")
+            CHAR_RULES["$char_name"]="${rule_type}:${params}"
+            need_save=1
+        fi
+    done
+    
+    # 修复聊天规则
+    for chat_path in "${!CHAT_RULES[@]}"; do
+        local rule="${CHAT_RULES[$chat_path]}"
+        if [[ "$rule" != *":"* ]]; then
+            # 如果规则不包含冒号，解析并重构
+            read -r rule_type params <<< $(parse_rule "$rule")
+            CHAT_RULES["$chat_path"]="${rule_type}:${params}"
+            need_save=1
+        fi
+    done
+    
+    # 如果有修复，保存规则
+    if [ $need_save -eq 1 ]; then
+        save_rules
+    fi
+}
 
 # 清理函数 - 程序退出时执行
 cleanup_on_exit() {
@@ -5071,49 +5114,5 @@ main() {
     main_menu
 }
 
-# 修复规则格式
-fix_rule_formats() {
-    local need_save=0
-    
-    # 修复全局规则
-    for i in "${!GLOBAL_RULES[@]}"; do
-        local rule="${GLOBAL_RULES[$i]}"
-        if [[ "$rule" != *":"* ]]; then
-            # 如果规则不包含冒号，解析并重构
-            read -r rule_type params <<< $(parse_rule "$rule")
-            GLOBAL_RULES[$i]="${rule_type}:${params}"
-            need_save=1
-        fi
-    done
-    
-    # 修复角色规则
-    for char_name in "${!CHAR_RULES[@]}"; do
-        local rule="${CHAR_RULES[$char_name]}"
-        if [[ "$rule" != *":"* ]]; then
-            # 如果规则不包含冒号，解析并重构
-            read -r rule_type params <<< $(parse_rule "$rule")
-            CHAR_RULES["$char_name"]="${rule_type}:${params}"
-            need_save=1
-        fi
-    done
-    
-    # 修复聊天规则
-    for chat_path in "${!CHAT_RULES[@]}"; do
-        local rule="${CHAT_RULES[$chat_path]}"
-        if [[ "$rule" != *":"* ]]; then
-            # 如果规则不包含冒号，解析并重构
-            read -r rule_type params <<< $(parse_rule "$rule")
-            CHAT_RULES["$chat_path"]="${rule_type}:${params}"
-            need_save=1
-        fi
-    done
-    
-    # 如果有修复，保存规则
-    if [ $need_save -eq 1 ]; then
-        save_rules
-    fi
-}
-
 # 执行主函数
 main
-
