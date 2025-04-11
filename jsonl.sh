@@ -4378,318 +4378,6 @@ cleanup_menu() {
         esac
     done
 }
-
-# 主菜单界面
-main_menu() {
-    while true; do
-        clear
-        echo -e "\033[32m按Ctrl+C退出程序\033[0m"
-        echo "作者：橄榄"
-        echo "版本：1.3"
-        echo "首次使用请先输入2进入设置"
-        echo "第一次写脚本，bug很多，如遇到bug随时反馈( *ˊᵕˋ)✩︎‧₊"
-        echo ""
-        echo "===== JSONL自动存档工具 ====="
-        echo "1. 启动"
-        echo "2. 设置"
-        echo "3. 清除冗余存档"
-        echo "4. 存档全部聊天记录"
-        echo "5. 更新"
-        echo "6. 压缩全部聊天存档"
-        echo "7. 导入聊天记录进酒馆"
-        echo "8. 退出"
-
-        echo -n "选择: "
-        choice=$(get_single_key)
-        echo "$choice"
-        
-        case "$choice" in
-            1)
-                start_monitoring
-                # 确保恢复终端设置
-                stty sane
-                ;;
-            2)
-                settings_menu
-                ;;
-            3)
-                cleanup_menu
-                ;;
-            4)
-                archive_all_chats
-                ;;
-            5)
-                update_script
-                ;;
-            6)
-                compress_all_chats
-                ;;
-            7)
-                import_chat_records
-                ;;
-            8)
-                echo "退出程序"
-                exit 0
-                ;;
-            *)
-                echo "无效选择"
-                press_any_key
-                ;;
-        esac
-    done
-}
-
-update_script() {
-    clear
-    echo "正在检查更新..."
-    
-    # 临时目录用于下载
-    TEMP_DIR="$SCRIPT_DIR/temp_update"
-    mkdir -p "$TEMP_DIR"
-    cd "$TEMP_DIR"
-    
-    # 检查是否安装必要的命令
-    if ! command -v curl &> /dev/null; then
-        echo "未安装 curl，正在尝试安装..."
-        pkg install curl -y
-        if [ $? -ne 0 ]; then
-            echo "安装 curl 失败，请手动安装后重试。"
-            press_any_key
-            cd "$SCRIPT_DIR"
-            rm -rf "$TEMP_DIR"
-            return 1
-        fi
-    fi
-    
-    # 检查是否安装 git
-    if ! command -v git &> /dev/null; then
-        echo "未安装 git，正在尝试安装..."
-        pkg install git -y
-        if [ $? -ne 0 ]; then
-            echo "安装 git 失败，请手动安装后重试。"
-            press_any_key
-            cd "$SCRIPT_DIR"
-            rm -rf "$TEMP_DIR"
-            return 1
-        fi
-    fi
-    
-    # 检测IP地理位置，决定是否使用代理
-    echo "检测IP地理位置，判断是否使用GitHub代理..."
-    local country_code
-    country_code=$(curl -s --connect-timeout 5 ipinfo.io/country)
-    local download_url=""
-    
-    if [ -n "$country_code" ] && [[ "$country_code" =~ ^[A-Z]{2}$ ]]; then
-        echo "检测到国家代码: $country_code"
-        if [ "$country_code" = "CN" ]; then
-            echo "检测到中国大陆IP，默认启用GitHub代理: $GH_FAST"
-            read -rp "是否禁用GitHub代理进行下载？(y/N): " disable_proxy
-            if [[ "$disable_proxy" =~ ^[Yy]$ ]]; then
-                download_url="https://github.com/${GITHUB_REPO}.git"
-                echo "已禁用GitHub代理，将直连GitHub下载。"
-            else
-                download_url="${GH_FAST}https://github.com/${GITHUB_REPO}.git"
-                echo "将使用GitHub代理下载: $GH_FAST"
-            fi
-        else
-            download_url="https://github.com/${GITHUB_REPO}.git"
-            echo "非中国大陆IP，将直连GitHub下载。"
-        fi
-    else
-        echo "无法检测IP地理位置或国家代码无效，将直连GitHub下载。"
-        download_url="https://github.com/${GITHUB_REPO}.git"
-    fi
-
-    # 从GitHub下载最新代码
-    echo "从 GitHub 下载最新代码..."
-    if [ "$country_code" = "CN" ] && [[ ! "$disable_proxy" =~ ^[Yy]$ ]]; then
-        # 中国用户且未禁用代理时，使用curl直接下载
-        echo "正在使用curl直接下载jsonl.sh..."
-        local raw_url="https://raw.githubusercontent.com/${GITHUB_REPO}/main/jsonl.sh"
-        local proxy_url="${GH_FAST}${raw_url#https://}"
-        curl -O "${proxy_url}"
-        if [ $? -eq 0 ]; then
-            echo "直接下载成功"
-        else
-            echo "直接下载失败，尝试使用git..."
-            if [ -d ".git" ]; then
-                git pull
-            else
-                git clone "$download_url" .
-            fi
-        fi
-    else
-        # 非中国用户或禁用代理时，使用git
-        if [ -d ".git" ]; then
-            # 如果已经是git仓库，更新
-            git pull
-        else
-            # 否则克隆仓库
-            git clone "$download_url" .
-        fi
-    fi
-    
-    if [ $? -eq 0 ]; then
-        echo "下载成功，正在更新脚本..."
-        
-        # 确保脚本有执行权限
-        chmod +x jsonl.sh
-        
-        # 复制到脚本目录
-        cp -f jsonl.sh "$SCRIPT_DIR/"
-        
-        # 删除临时目录
-        cd "$SCRIPT_DIR"
-        rm -rf "$TEMP_DIR"
-        
-        echo "更新成功！当前为最新版本。"
-        echo "请重新启动脚本以应用更新。"
-        
-        # 提示用户重启脚本
-        read -p "现在重启脚本吗？(y/n): " restart
-        if [ "$restart" = "y" ] || [ "$restart" = "Y" ]; then
-            echo "重启脚本..."
-            exec bash "$SCRIPT_DIR/jsonl.sh"
-        fi
-    else
-        echo "更新失败，请检查网络连接或手动下载。"
-        cd "$SCRIPT_DIR"
-        rm -rf "$TEMP_DIR"
-    fi
-    
-    press_any_key
-}
-
-# 启动监控（修改为使用Ctrl+D返回主菜单）
-start_monitoring() {
-    clear
-    # 执行初始扫描（只记录信息，不处理变化）
-    initial_scan
-    
-    echo "保存行数记录到日志文件... (共 ${#line_counts[@]} 条记录)"
-    
-    echo "开始监控JSONL文件变化..."
-    echo -e "\033[32m按Ctrl+D暂停监控，按Ctrl+C退出程序\033[0m"
-    
-    # 设置trap捕获信号
-    trap 'echo "暂停..."; return 0' SIGQUIT  # Ctrl+\
-    trap ':' SIGINT  # 忽略Ctrl+C，由主循环处理
-    
-    # 循环监控
-    while true; do
-        # 检查是否有Ctrl+C或Ctrl+D
-        if read -t 1 -n 1; then
-            case "$REPLY" in
-                $'\x04')  # Ctrl+D
-                    echo "暂停监控，返回主菜单..."
-                    stty sane
-                    return 0
-                    ;;
-                $'\x03')  # Ctrl+C
-                    echo "退出程序..."
-                    cleanup_on_exit
-                    exit 0
-                    ;;
-            esac
-        fi
-        
-        # 执行智能扫描
-        smart_scan
-    done
-}
-
-
-# 清理函数 - 程序退出时执行
-cleanup_on_exit() {
-    save_line_counts
-    save_rules
-    # 确保恢复终端设置，尝试多种方式
-    stty sane
-    stty echo
-    stty icanon
-    reset -I >/dev/null 2>&1 || true  # 尝试重置终端，忽略错误
-    echo "程序已退出"
-    exit 0
-}
-
-# 设置清理钩子 - SIGINT、SIGTERM和SIGHUP都执行完整的清理
-trap cleanup_on_exit SIGTERM SIGINT SIGHUP EXIT
-
-# 设置空的SIGINT处理器，覆盖前面可能的处理器
-trap '' SIGINT
-
-# 主入口
-main() {
-    # 清除旧的SIGINT处理器并设置正确的处理器，确保只使用cleanup_on_exit
-    trap '' SIGINT
-    trap cleanup_on_exit SIGINT SIGTERM SIGHUP EXIT
-    
-    # 检查依赖
-    check_dependencies
-    
-    # 加载配置
-    load_config
-    
-    # 加载规则
-    load_rules
-    
-    # 修复规则格式
-    fix_rule_formats
-    
-    # 从日志文件加载之前的行数记录
-    load_line_counts
-    
-    # 主菜单
-    main_menu
-}
-
-# 修复规则格式
-fix_rule_formats() {
-    local need_save=0
-    
-    # 修复全局规则
-    for i in "${!GLOBAL_RULES[@]}"; do
-        local rule="${GLOBAL_RULES[$i]}"
-        if [[ "$rule" != *":"* ]]; then
-            # 如果规则不包含冒号，解析并重构
-            read -r rule_type params <<< $(parse_rule "$rule")
-            GLOBAL_RULES[$i]="${rule_type}:${params}"
-            need_save=1
-        fi
-    done
-    
-    # 修复角色规则
-    for char_name in "${!CHAR_RULES[@]}"; do
-        local rule="${CHAR_RULES[$char_name]}"
-        if [[ "$rule" != *":"* ]]; then
-            # 如果规则不包含冒号，解析并重构
-            read -r rule_type params <<< $(parse_rule "$rule")
-            CHAR_RULES["$char_name"]="${rule_type}:${params}"
-            need_save=1
-        fi
-    done
-    
-    # 修复聊天规则
-    for chat_path in "${!CHAT_RULES[@]}"; do
-        local rule="${CHAT_RULES[$chat_path]}"
-        if [[ "$rule" != *":"* ]]; then
-            # 如果规则不包含冒号，解析并重构
-            read -r rule_type params <<< $(parse_rule "$rule")
-            CHAT_RULES["$chat_path"]="${rule_type}:${params}"
-            need_save=1
-        fi
-    done
-    
-    # 如果有修复，保存规则
-    if [ $need_save -eq 1 ]; then
-        save_rules
-    fi
-}
-
-# 执行主函数
-main
-
 # 导入聊天记录进酒馆功能
 import_chat_records() {
     clear
@@ -5094,3 +4782,315 @@ compress_all_chats() {
     
     press_any_key
 }
+
+# 主菜单界面
+main_menu() {
+    while true; do
+        clear
+        echo -e "\033[32m按Ctrl+C退出程序\033[0m"
+        echo "作者：橄榄"
+        echo "版本：1.3"
+        echo "首次使用请先输入2进入设置"
+        echo "第一次写脚本，bug很多，如遇到bug随时反馈( *ˊᵕˋ)✩︎‧₊"
+        echo ""
+        echo "===== JSONL自动存档工具 ====="
+        echo "1. 启动"
+        echo "2. 设置"
+        echo "3. 清除冗余存档"
+        echo "4. 存档全部聊天记录"
+        echo "5. 更新"
+        echo "6. 压缩全部聊天存档"
+        echo "7. 导入聊天记录进酒馆"
+        echo "8. 退出"
+
+        echo -n "选择: "
+        choice=$(get_single_key)
+        echo "$choice"
+        
+        case "$choice" in
+            1)
+                start_monitoring
+                # 确保恢复终端设置
+                stty sane
+                ;;
+            2)
+                settings_menu
+                ;;
+            3)
+                cleanup_menu
+                ;;
+            4)
+                archive_all_chats
+                ;;
+            5)
+                update_script
+                ;;
+            6)
+                compress_all_chats
+                ;;
+            7)
+                import_chat_records
+                ;;
+            8)
+                echo "退出程序"
+                exit 0
+                ;;
+            *)
+                echo "无效选择"
+                press_any_key
+                ;;
+        esac
+    done
+}
+
+update_script() {
+    clear
+    echo "正在检查更新..."
+    
+    # 临时目录用于下载
+    TEMP_DIR="$SCRIPT_DIR/temp_update"
+    mkdir -p "$TEMP_DIR"
+    cd "$TEMP_DIR"
+    
+    # 检查是否安装必要的命令
+    if ! command -v curl &> /dev/null; then
+        echo "未安装 curl，正在尝试安装..."
+        pkg install curl -y
+        if [ $? -ne 0 ]; then
+            echo "安装 curl 失败，请手动安装后重试。"
+            press_any_key
+            cd "$SCRIPT_DIR"
+            rm -rf "$TEMP_DIR"
+            return 1
+        fi
+    fi
+    
+    # 检查是否安装 git
+    if ! command -v git &> /dev/null; then
+        echo "未安装 git，正在尝试安装..."
+        pkg install git -y
+        if [ $? -ne 0 ]; then
+            echo "安装 git 失败，请手动安装后重试。"
+            press_any_key
+            cd "$SCRIPT_DIR"
+            rm -rf "$TEMP_DIR"
+            return 1
+        fi
+    fi
+    
+    # 检测IP地理位置，决定是否使用代理
+    echo "检测IP地理位置，判断是否使用GitHub代理..."
+    local country_code
+    country_code=$(curl -s --connect-timeout 5 ipinfo.io/country)
+    local download_url=""
+    
+    if [ -n "$country_code" ] && [[ "$country_code" =~ ^[A-Z]{2}$ ]]; then
+        echo "检测到国家代码: $country_code"
+        if [ "$country_code" = "CN" ]; then
+            echo "检测到中国大陆IP，默认启用GitHub代理: $GH_FAST"
+            read -rp "是否禁用GitHub代理进行下载？(y/N): " disable_proxy
+            if [[ "$disable_proxy" =~ ^[Yy]$ ]]; then
+                download_url="https://github.com/${GITHUB_REPO}.git"
+                echo "已禁用GitHub代理，将直连GitHub下载。"
+            else
+                download_url="${GH_FAST}https://github.com/${GITHUB_REPO}.git"
+                echo "将使用GitHub代理下载: $GH_FAST"
+            fi
+        else
+            download_url="https://github.com/${GITHUB_REPO}.git"
+            echo "非中国大陆IP，将直连GitHub下载。"
+        fi
+    else
+        echo "无法检测IP地理位置或国家代码无效，将直连GitHub下载。"
+        download_url="https://github.com/${GITHUB_REPO}.git"
+    fi
+
+    # 从GitHub下载最新代码
+    echo "从 GitHub 下载最新代码..."
+    if [ "$country_code" = "CN" ] && [[ ! "$disable_proxy" =~ ^[Yy]$ ]]; then
+        # 中国用户且未禁用代理时，使用curl直接下载
+        echo "正在使用curl直接下载jsonl.sh..."
+        local raw_url="https://raw.githubusercontent.com/${GITHUB_REPO}/main/jsonl.sh"
+        local proxy_url="${GH_FAST}${raw_url#https://}"
+        curl -O "${proxy_url}"
+        if [ $? -eq 0 ]; then
+            echo "直接下载成功"
+        else
+            echo "直接下载失败，尝试使用git..."
+            if [ -d ".git" ]; then
+                git pull
+            else
+                git clone "$download_url" .
+            fi
+        fi
+    else
+        # 非中国用户或禁用代理时，使用git
+        if [ -d ".git" ]; then
+            # 如果已经是git仓库，更新
+            git pull
+        else
+            # 否则克隆仓库
+            git clone "$download_url" .
+        fi
+    fi
+    
+    if [ $? -eq 0 ]; then
+        echo "下载成功，正在更新脚本..."
+        
+        # 确保脚本有执行权限
+        chmod +x jsonl.sh
+        
+        # 复制到脚本目录
+        cp -f jsonl.sh "$SCRIPT_DIR/"
+        
+        # 删除临时目录
+        cd "$SCRIPT_DIR"
+        rm -rf "$TEMP_DIR"
+        
+        echo "更新成功！当前为最新版本。"
+        echo "请重新启动脚本以应用更新。"
+        
+        # 提示用户重启脚本
+        read -p "现在重启脚本吗？(y/n): " restart
+        if [ "$restart" = "y" ] || [ "$restart" = "Y" ]; then
+            echo "重启脚本..."
+            exec bash "$SCRIPT_DIR/jsonl.sh"
+        fi
+    else
+        echo "更新失败，请检查网络连接或手动下载。"
+        cd "$SCRIPT_DIR"
+        rm -rf "$TEMP_DIR"
+    fi
+    
+    press_any_key
+}
+
+# 启动监控（修改为使用Ctrl+D返回主菜单）
+start_monitoring() {
+    clear
+    # 执行初始扫描（只记录信息，不处理变化）
+    initial_scan
+    
+    echo "保存行数记录到日志文件... (共 ${#line_counts[@]} 条记录)"
+    
+    echo "开始监控JSONL文件变化..."
+    echo -e "\033[32m按Ctrl+D暂停监控，按Ctrl+C退出程序\033[0m"
+    
+    # 设置trap捕获信号
+    trap 'echo "暂停..."; return 0' SIGQUIT  # Ctrl+\
+    trap ':' SIGINT  # 忽略Ctrl+C，由主循环处理
+    
+    # 循环监控
+    while true; do
+        # 检查是否有Ctrl+C或Ctrl+D
+        if read -t 1 -n 1; then
+            case "$REPLY" in
+                $'\x04')  # Ctrl+D
+                    echo "暂停监控，返回主菜单..."
+                    stty sane
+                    return 0
+                    ;;
+                $'\x03')  # Ctrl+C
+                    echo "退出程序..."
+                    cleanup_on_exit
+                    exit 0
+                    ;;
+            esac
+        fi
+        
+        # 执行智能扫描
+        smart_scan
+    done
+}
+
+
+# 清理函数 - 程序退出时执行
+cleanup_on_exit() {
+    save_line_counts
+    save_rules
+    # 确保恢复终端设置，尝试多种方式
+    stty sane
+    stty echo
+    stty icanon
+    reset -I >/dev/null 2>&1 || true  # 尝试重置终端，忽略错误
+    echo "程序已退出"
+    exit 0
+}
+
+# 设置清理钩子 - SIGINT、SIGTERM和SIGHUP都执行完整的清理
+trap cleanup_on_exit SIGTERM SIGINT SIGHUP EXIT
+
+# 设置空的SIGINT处理器，覆盖前面可能的处理器
+trap '' SIGINT
+
+# 主入口
+main() {
+    # 清除旧的SIGINT处理器并设置正确的处理器，确保只使用cleanup_on_exit
+    trap '' SIGINT
+    trap cleanup_on_exit SIGINT SIGTERM SIGHUP EXIT
+    
+    # 检查依赖
+    check_dependencies
+    
+    # 加载配置
+    load_config
+    
+    # 加载规则
+    load_rules
+    
+    # 修复规则格式
+    fix_rule_formats
+    
+    # 从日志文件加载之前的行数记录
+    load_line_counts
+    
+    # 主菜单
+    main_menu
+}
+
+# 修复规则格式
+fix_rule_formats() {
+    local need_save=0
+    
+    # 修复全局规则
+    for i in "${!GLOBAL_RULES[@]}"; do
+        local rule="${GLOBAL_RULES[$i]}"
+        if [[ "$rule" != *":"* ]]; then
+            # 如果规则不包含冒号，解析并重构
+            read -r rule_type params <<< $(parse_rule "$rule")
+            GLOBAL_RULES[$i]="${rule_type}:${params}"
+            need_save=1
+        fi
+    done
+    
+    # 修复角色规则
+    for char_name in "${!CHAR_RULES[@]}"; do
+        local rule="${CHAR_RULES[$char_name]}"
+        if [[ "$rule" != *":"* ]]; then
+            # 如果规则不包含冒号，解析并重构
+            read -r rule_type params <<< $(parse_rule "$rule")
+            CHAR_RULES["$char_name"]="${rule_type}:${params}"
+            need_save=1
+        fi
+    done
+    
+    # 修复聊天规则
+    for chat_path in "${!CHAT_RULES[@]}"; do
+        local rule="${CHAT_RULES[$chat_path]}"
+        if [[ "$rule" != *":"* ]]; then
+            # 如果规则不包含冒号，解析并重构
+            read -r rule_type params <<< $(parse_rule "$rule")
+            CHAT_RULES["$chat_path"]="${rule_type}:${params}"
+            need_save=1
+        fi
+    done
+    
+    # 如果有修复，保存规则
+    if [ $need_save -eq 1 ]; then
+        save_rules
+    fi
+}
+
+# 执行主函数
+main
+
