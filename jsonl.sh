@@ -4470,7 +4470,6 @@ update_script() {
     echo "检测IP地理位置，判断是否使用GitHub代理..."
     local country_code
     country_code=$(curl -s --connect-timeout 5 ipinfo.io/country)
-    local download_url=""
     
     if [ -n "$country_code" ] && [[ "$country_code" =~ ^[A-Z]{2}$ ]]; then
         echo "检测到国家代码: $country_code"
@@ -4478,19 +4477,15 @@ update_script() {
             echo "检测到中国大陆IP，默认启用GitHub代理: $GH_PROXY"
             read -rp "是否禁用GitHub代理进行下载？(y/N): " disable_proxy
             if [[ "$disable_proxy" =~ ^[Yy]$ ]]; then
-                download_url="https://github.com/${GITHUB_REPO}.git"
                 echo "已禁用GitHub代理，将直连GitHub下载。"
             else
-                download_url="${GH_PROXY}https://github.com/${GITHUB_REPO}.git"
                 echo "将使用GitHub代理下载: $GH_PROXY"
             fi
         else
-            download_url="https://github.com/${GITHUB_REPO}.git"
             echo "非中国大陆IP，将直连GitHub下载。"
         fi
     else
         echo "无法检测IP地理位置或国家代码无效，将直连GitHub下载。"
-        download_url="https://github.com/${GITHUB_REPO}.git"
     fi
 
     # 从GitHub下载最新代码
@@ -4500,7 +4495,13 @@ update_script() {
         git pull
     else
         # 否则克隆仓库
-        git clone "$download_url" .
+        if [ "$country_code" = "CN" ] && ! [[ "$disable_proxy" =~ ^[Yy]$ ]]; then
+            # 使用代理
+            git clone "${GH_PROXY}https://github.com/${GITHUB_REPO}" .
+        else
+            # 直连
+            git clone "https://github.com/${GITHUB_REPO}" .
+        fi
     fi
     
     if [ $? -eq 0 ]; then
