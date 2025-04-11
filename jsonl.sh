@@ -4498,7 +4498,16 @@ update_script() {
     if [ "$country_code" = "CN" ] && [[ ! "$disable_proxy" =~ ^[Yy]$ ]]; then
         # 中国用户且未禁用代理时，使用curl直接下载
         echo "正在使用curl直接下载jsonl.sh..."
-        curl -O ${GH_FAST}https://github.com/${GITHUB_REPO}/raw/main/jsonl.sh
+        # 显示具体下载地址以便诊断
+        local raw_url="https://github.com/${GITHUB_REPO}/raw/main/jsonl.sh"
+        local proxy_url="${GH_FAST}${raw_url}"
+        echo "原始地址: ${raw_url}"
+        echo "代理地址: ${proxy_url}"
+        
+        # 尝试使用代理下载
+        echo "开始下载，使用命令: curl -v -O \"${proxy_url}\""
+        curl -v -O "${proxy_url}"
+        
         if [ $? -eq 0 ]; then
             echo "直接下载成功"
         else
