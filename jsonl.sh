@@ -4475,14 +4475,14 @@ update_script() {
     if [ -n "$country_code" ] && [[ "$country_code" =~ ^[A-Z]{2}$ ]]; then
         echo "检测到国家代码: $country_code"
         if [ "$country_code" = "CN" ]; then
-            echo "检测到中国大陆IP，默认启用GitHub代理: $GH_PROXY"
+            echo "检测到中国大陆IP，默认启用GitHub代理: $GH_FAST"
             read -rp "是否禁用GitHub代理进行下载？(y/N): " disable_proxy
             if [[ "$disable_proxy" =~ ^[Yy]$ ]]; then
                 download_url="https://github.com/${GITHUB_REPO}.git"
                 echo "已禁用GitHub代理，将直连GitHub下载。"
             else
-                download_url="${GH_PROXY}https://github.com/${GITHUB_REPO}.git"
-                echo "将使用GitHub代理下载: $GH_PROXY"
+                download_url="${GH_FAST}https://github.com/${GITHUB_REPO}.git"
+                echo "将使用GitHub代理下载: $GH_FAST"
             fi
         else
             download_url="https://github.com/${GITHUB_REPO}.git"
@@ -4498,7 +4498,7 @@ update_script() {
     if [ "$country_code" = "CN" ] && [[ ! "$disable_proxy" =~ ^[Yy]$ ]]; then
         # 中国用户且未禁用代理时，使用curl直接下载
         echo "正在使用curl直接下载jsonl.sh..."
-        curl -O ${GH_PROXY}https://github.com/${GITHUB_REPO}/jsonl.sh
+        curl -O ${GH_FAST}https://github.com/${GITHUB_REPO}/jsonl.sh
         if [ $? -eq 0 ]; then
             echo "直接下载成功"
         else
