@@ -10,6 +10,11 @@ LOG_FILE="${LOG_DIR}/line_counts.log"
 CONFIG_FILE="${LOG_DIR}/config.conf"
 RULES_FILE="${LOG_DIR}/rules.txt"
 
+# GitHub相关设置
+GH_PROXY="https://ghproxy.com/"
+GITHUB_REPO="Liu-fucheng/Jsonl_monitor"
+GH_DOWNLOAD_URL_BASE="https://github.com/${GITHUB_REPO}/raw/main"
+
 # 默认配置
 SAVE_INTERVAL=20
 SAVE_MODE="interval" # "interval" 或 "latest"
@@ -4435,6 +4440,19 @@ update_script() {
     mkdir -p "$TEMP_DIR"
     cd "$TEMP_DIR"
     
+    # 检查是否安装必要的命令
+    if ! command -v curl &> /dev/null; then
+        echo "未安装 curl，正在尝试安装..."
+        pkg install curl -y
+        if [ $? -ne 0 ]; then
+            echo "安装 curl 失败，请手动安装后重试。"
+            press_any_key
+            cd "$SCRIPT_DIR"
+            rm -rf "$TEMP_DIR"
+            return 1
+        fi
+    fi
+    
     # 检查是否安装 git
     if ! command -v git &> /dev/null; then
         echo "未安装 git，正在尝试安装..."
@@ -4447,6 +4465,33 @@ update_script() {
             return 1
         fi
     fi
+    
+    # 检测IP地理位置，决定是否使用代理
+    echo "检测IP地理位置，判断是否使用GitHub代理..."
+    local country_code
+    country_code=$(curl -s --connect-timeout 5 ipinfo.io/country)
+    local download_url=""
+    
+    if [ -n "$country_code" ] && [[ "$country_code" =~ ^[A-Z]{2}$ ]]; then
+        echo "检测到国家代码: $country_code"
+        if [ "$country_code" = "CN" ]; then
+            echo "检测到中国大陆IP，默认启用GitHub代理: $GH_PROXY"
+            read -rp "是否禁用GitHub代理进行下载？(y/N): " disable_proxy
+            if [[ "$disable_proxy" =~ ^[Yy]$ ]]; then
+                download_url="https://github.com/${GITHUB_REPO}.git"
+                echo "已禁用GitHub代理，将直连GitHub下载。"
+            else
+                download_url="${GH_PROXY}https://github.com/${GITHUB_REPO}.git"
+                echo "将使用GitHub代理下载: $GH_PROXY"
+            fi
+        else
+            download_url="https://github.com/${GITHUB_REPO}.git"
+            echo "非中国大陆IP，将直连GitHub下载。"
+        fi
+    else
+        echo "无法检测IP地理位置或国家代码无效，将直连GitHub下载。"
+        download_url="https://github.com/${GITHUB_REPO}.git"
+    fi
 
     # 从GitHub下载最新代码
     echo "从 GitHub 下载最新代码..."
@@ -4455,7 +4500,7 @@ update_script() {
         git pull
     else
         # 否则克隆仓库
-        git clone https://github.com/Liu-fucheng/Jsonl_monitor.git .
+        git clone "$download_url" .
     fi
     
     if [ $? -eq 0 ]; then
@@ -4542,7 +4587,7 @@ cleanup_on_exit() {
 }
 
 # 设置清理钩子 - SIGINT、SIGTERM和SIGHUP都执行完整的清理
-trap cleanup_on_exit SIGTERM SIGINT SIGHUP
+trap cleanup_on_exit SIGTERM SIGINT SIGHUP EXIT
 
 # 设置空的SIGINT处理器，覆盖前面可能的处理器
 trap '' SIGINT
