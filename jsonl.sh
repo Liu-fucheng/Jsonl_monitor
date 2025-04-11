@@ -4789,7 +4789,7 @@ main_menu() {
     while true; do
         clear
         echo -e "\033[32m按Ctrl+C退出程序\033[0m"
-        echo "作者：橄榄"
+        echo "作者：柳拂城"
         echo "版本：1.3"
         echo "首次使用请先输入2进入设置"
         echo "第一次写脚本，如遇bug请在GitHub上反馈( *ˊᵕˋ)✩︎‧₊"
