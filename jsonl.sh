@@ -457,6 +457,51 @@ check_line_count_changes() {
     
     return 1  # 没有变化
 }
+# 获取不重复的xz文件名（基于内容和楼层）
+get_xz_unique_filename() {
+    local base_name="$1"
+    local floor_number="$2"  # 楼层号
+    local content="$3"      # 文件内容
+    local dir_path="$(dirname "$base_name")"
+    
+    # 基础文件名 (xz格式)
+    local base_file="${base_name}.xz"
+    
+    # 先检查是否存在同名同楼层的xz文件
+    if [ -f "$base_file" ]; then
+        # 存在同名文件，比对内容
+        local existing_content=$(xz -dc "$base_file" 2>/dev/null)
+        if [ "$existing_content" = "$content" ]; then
+            # 内容相同，直接返回现有文件名
+            echo "$base_file"
+            return
+        fi
+    fi
+    
+    # 内容不同或文件不存在，查找可用文件名
+    local output_file="$base_file"
+    local counter=1
+    
+    while [ -f "$output_file" ]; do
+        output_file="${base_name}(${counter}).xz"
+        # 如果存在已编号的文件，也比对内容
+        if [ -f "$output_file" ]; then
+            local existing_content=$(xz -dc "$output_file" 2>/dev/null)
+            if [ "$existing_content" = "$content" ]; then
+                # 内容相同，返回现有文件名
+                echo "$output_file"
+                return
+            fi
+        fi
+        counter=$((counter + 1))
+    done
+    
+    # 记录此楼层已处理
+    local key="${dir_path}_${floor_number}"
+    processed_floors["$key"]="$output_file"
+    
+    echo "$output_file"
+}
 
 # 处理内容变化但行数相同的情况
 process_content_changes() {
@@ -610,7 +655,8 @@ process_changes() {
     local previous_latest_file=""
     local latest_mtime=0
     
-    for existing_file in "$target_dir"/*楼*.jsonl; do
+    # 同时检查.jsonl和.xz文件
+    for existing_file in "$target_dir"/*楼*.jsonl "$target_dir"/*楼*.xz; do
         [ -f "$existing_file" ] || continue
         
         # 获取文件修改时间
@@ -4922,7 +4968,7 @@ main_menu() {
         clear
         echo -e "\033[32m按Ctrl+C退出程序\033[0m"
         echo "作者：柳拂城"
-        echo "版本：1.3.1"
+        echo "版本：1.3.2"
         echo "首次使用请先输入2进入设置（记得看GitHub上的Readme）"
         echo "第一次写脚本，如遇bug请在GitHub上反馈( *ˊᵕˋ)✩︎‧₊"
         echo "GitHub链接：https://github.com/Liu-fucheng/Jsonl_monitor"
