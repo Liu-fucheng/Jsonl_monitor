@@ -930,10 +930,8 @@ sort_directories() {
         sorted_dirs=("${english_dirs[@]}" "${chinese_dirs[@]}")
     fi
     
-    # 返回排序后的目录
-    for dir in "${sorted_dirs[@]}"; do
-        echo "$dir"
-    done
+    # 返回排序后的目录，使用NULL分隔符防止空格问题
+    printf "%s\0" "${sorted_dirs[@]}"
 }
 
 # 处理范围选择，转换为选择列表
@@ -2221,7 +2219,7 @@ browse_folders() {
         if [ -d "$dir" ]; then
             char_dirs+=("$dir")
         fi
-    done < <(find "$SAVE_BASE_DIR" -mindepth 1 -maxdepth 1 -type d)
+    done < <(find "$SAVE_BASE_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
     
     # 排序目录
     sorted_char_dirs=($(sort_directories "${char_dirs[@]}"))
@@ -2239,7 +2237,7 @@ browse_folders() {
     done
     
     if [ ${#sorted_char_dirs[@]} -eq 0 ]; then
-        echo "没有角色目录"
+        echo "没有角色目录或目录路径有误: $SAVE_BASE_DIR"
         press_any_key
         return
     fi
@@ -2304,6 +2302,7 @@ browse_folders() {
 
 select_chat_dir() {
     local char_name="$1"
+    # 使用双引号确保空格被正确处理
     local char_dir="$SAVE_BASE_DIR/$char_name"
     
     echo "选择聊天记录目录:"
@@ -2312,19 +2311,20 @@ select_chat_dir() {
     
     chat_dirs=()
     i=0
+    # 使用引号包裹变量以处理路径中的空格
     while IFS= read -r dir; do
         if [ -d "$dir" ]; then
-            if [ -n "$(find "$dir" -type f)" ]; then
+            if [ -n "$(find "$dir" -type f 2>/dev/null)" ]; then
                 chat_dirs+=("$dir")
                 read floor_min floor_max < <(get_floor_range "$dir")
                 total_files=$(count_files_in_dir "$dir")
                 echo "$((++i)). $(basename "$dir") (${floor_min}楼-${floor_max}楼, 共${total_files}个文件)"
             fi
         fi
-    done < <(find "$char_dir" -mindepth 1 -maxdepth 1 -type d)
+    done < <(find "$char_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
     
     if [ ${#chat_dirs[@]} -eq 0 ]; then
-        echo "没有聊天记录目录"
+        echo "没有聊天记录目录或目录不存在: $char_dir"
         press_any_key
         return
     fi
@@ -2377,7 +2377,7 @@ search_by_name() {
                 matched_dirs+=("$dir")
             fi
         fi
-    done < <(find "$SAVE_BASE_DIR" -mindepth 1 -maxdepth 1 -type d)
+    done < <(find "$SAVE_BASE_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
     
     if [ ${#matched_dirs[@]} -eq 0 ]; then
         echo "没有找到匹配的角色目录"
@@ -3111,8 +3111,11 @@ cleanup_menu() {
                     fi
                 done < <(find "$SAVE_BASE_DIR" -mindepth 1 -maxdepth 1 -type d)
                 
-                # 排序目录
-                sorted_char_dirs=($(sort_directories "${char_dirs[@]}"))
+                # 排序目录 - 使用NULL分隔符读取结果，避免空格问题
+                sorted_char_dirs=()
+                while IFS= read -r -d $'\0' dir; do
+                    sorted_char_dirs+=("$dir")
+                done < <(sort_directories "${char_dirs[@]}")
                 
                 # 显示排序后的目录
                 i=0
@@ -3142,7 +3145,11 @@ cleanup_menu() {
                     save_config
                     
                     # 直接重新排序并显示，不清屏
-                    sorted_char_dirs=($(sort_directories "${char_dirs[@]}"))
+                    sorted_char_dirs=()
+                    while IFS= read -r -d $'\0' dir; do
+                        sorted_char_dirs+=("$dir")
+                    done < <(sort_directories "${char_dirs[@]}")
+                    
                     i=0
                     for dir in "${sorted_char_dirs[@]}"; do
                         echo "$((++i)) - $(basename "$dir")"
@@ -3292,7 +3299,7 @@ cleanup_menu() {
                                         cleanup_range "$chat_dir" "$actual_start" "$actual_end"
                                     fi
                                 fi
-                            done < <(find "$char_dir" -mindepth 1 -maxdepth 1 -type d)
+                            done < <(find "$char_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
                         done
                     else
                         # 保留特定倍数楼层的清理
@@ -3370,7 +3377,7 @@ cleanup_menu() {
                                         cleanup_by_multiple "$chat_dir" "$multiple"
                                     fi
                                 fi
-                            done < <(find "$char_dir" -mindepth 1 -maxdepth 1 -type d)
+                            done < <(find "$char_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
                         done
                     fi
                     
@@ -3401,7 +3408,7 @@ cleanup_menu() {
                 done < <(find "$selected_char_dir" -mindepth 1 -maxdepth 1 -type d | sort)
                 
                 if [ ${#chat_dirs[@]} -eq 0 ]; then
-                    echo "没有聊天记录目录"
+                    echo "没有聊天记录目录或目录路径有误: $selected_char_dir"
                     press_any_key
                     continue
                 fi
@@ -3635,7 +3642,7 @@ cleanup_menu() {
                         if [ -d "$dir" ]; then
                             char_dirs+=("$dir")
                         fi
-                    done < <(find "$SAVE_BASE_DIR" -mindepth 1 -maxdepth 1 -type d -name "*$char_name*")
+                    done < <(find "$SAVE_BASE_DIR" -mindepth 1 -maxdepth 1 -type d -name "*${char_name}*")
                     
                     if [ ${#char_dirs[@]} -eq 0 ]; then
                         echo "未找到角色 '$char_name' 的目录"
@@ -3646,8 +3653,11 @@ cleanup_menu() {
                     # 询问排序方式
                     ask_sort_method
                     
-                    # 排序目录
-                    sorted_char_dirs=($(sort_directories "${char_dirs[@]}"))
+                    # 排序目录 - 使用NULL分隔符读取结果，避免空格问题
+                    sorted_char_dirs=()
+                    while IFS= read -r -d $'\0' dir; do
+                        sorted_char_dirs+=("$dir")
+                    done < <(sort_directories "${char_dirs[@]}")
                     
                     echo "找到 ${#sorted_char_dirs[@]} 个匹配目录:"
                     
@@ -3673,7 +3683,11 @@ cleanup_menu() {
                         save_config
                         
                         # 直接重新排序并显示，不清屏
-                        sorted_char_dirs=($(sort_directories "${char_dirs[@]}"))
+                        sorted_char_dirs=()
+                        while IFS= read -r -d $'\0' dir; do
+                            sorted_char_dirs+=("$dir")
+                        done < <(sort_directories "${char_dirs[@]}")
+                        
                         i=0
                         for dir in "${sorted_char_dirs[@]}"; do
                             echo "$((++i)) - $(basename "$dir")"
@@ -3823,7 +3837,7 @@ cleanup_menu() {
                                             cleanup_range "$chat_dir" "$actual_start" "$actual_end"
                                         fi
                                     fi
-                                done < <(find "$char_dir" -mindepth 1 -maxdepth 1 -type d)
+                                done < <(find "$char_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
                             done
                         else
                             # 保留特定倍数楼层的清理
@@ -3901,7 +3915,7 @@ cleanup_menu() {
                                             cleanup_by_multiple "$chat_dir" "$multiple"
                                         fi
                                     fi
-                                done < <(find "$char_dir" -mindepth 1 -maxdepth 1 -type d)
+                                done < <(find "$char_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
                             done
                         fi
                         
@@ -4397,7 +4411,7 @@ import_chat_records() {
     
     # 查找所有角色目录
     local char_dirs=()
-    mapfile -t char_dirs < <(find "$SAVE_BASE_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+    mapfile -t char_dirs < <(find "$SAVE_BASE_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
     
     if [ ${#char_dirs[@]} -eq 0 ]; then
         echo "未找到任何角色目录。请先使用存档功能创建备份。"
@@ -4469,10 +4483,10 @@ import_chat_records() {
     
     # 查找该角色下的所有聊天记录目录
     local chat_dirs=()
-    mapfile -t chat_dirs < <(find "$selected_char_dir" -mindepth 1 -maxdepth 1 -type d | sort)
+    mapfile -t chat_dirs < <(find "$selected_char_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
     
     if [ ${#chat_dirs[@]} -eq 0 ]; then
-        echo "该角色下未找到任何聊天记录。"
+        echo "该角色下未找到任何聊天记录或目录路径有误: $selected_char_dir"
         press_any_key
         return
     fi
@@ -4658,10 +4672,10 @@ import_chat_records() {
     local target_filename=""
     if [ "$import_type" = "1" ]; then
         # 覆盖原始聊天记录
-        target_filename="$SOURCE_DIR/$char_name/$chat_name.jsonl"
+        target_filename="${SOURCE_DIR}/${char_name}/${chat_name}.jsonl"
     else
         # 新建聊天记录
-        target_filename="$SOURCE_DIR/$char_name/$chat_name imported.jsonl"
+        target_filename="${SOURCE_DIR}/${char_name}/${chat_name} imported.jsonl"
     fi
     
     # 确保目标目录存在
