@@ -4380,7 +4380,7 @@ main_menu() {
         clear
         echo -e "\033[32m按Ctrl+C退出程序\033[0m"
         echo "作者：橄榄"
-        echo "版本：1.2"
+        echo "版本：1.3"
         echo "首次使用请先输入2进入设置"
         echo "第一次写脚本，bug很多，如遇到bug随时反馈( *ˊᵕˋ)✩︎‧₊"
         echo ""
@@ -4399,6 +4399,7 @@ main_menu() {
         case "$choice" in
             1)
                 start_monitoring
+                # 确保恢复终端设置
                 stty sane
                 ;;
             2)
@@ -4423,6 +4424,69 @@ main_menu() {
                 ;;
         esac
     done
+}
+
+update_script() {
+    clear
+    echo "正在检查更新..."
+    
+    # 临时目录用于下载
+    TEMP_DIR="$SCRIPT_DIR/temp_update"
+    mkdir -p "$TEMP_DIR"
+    cd "$TEMP_DIR"
+    
+    # 检查是否安装 git
+    if ! command -v git &> /dev/null; then
+        echo "未安装 git，正在尝试安装..."
+        pkg install git -y
+        if [ $? -ne 0 ]; then
+            echo "安装 git 失败，请手动安装后重试。"
+            press_any_key
+            cd "$SCRIPT_DIR"
+            rm -rf "$TEMP_DIR"
+            return 1
+        fi
+    fi
+
+    # 从GitHub下载最新代码
+    echo "从 GitHub 下载最新代码..."
+    if [ -d ".git" ]; then
+        # 如果已经是git仓库，更新
+        git pull
+    else
+        # 否则克隆仓库
+        git clone https://github.com/Liu-fucheng/Jsonl_monitor.git .
+    fi
+    
+    if [ $? -eq 0 ]; then
+        echo "下载成功，正在更新脚本..."
+        
+        # 确保脚本有执行权限
+        chmod +x jsonl.sh
+        
+        # 复制到脚本目录
+        cp -f jsonl.sh "$SCRIPT_DIR/"
+        
+        # 删除临时目录
+        cd "$SCRIPT_DIR"
+        rm -rf "$TEMP_DIR"
+        
+        echo "更新成功！当前为最新版本。"
+        echo "请重新启动脚本以应用更新。"
+        
+        # 提示用户重启脚本
+        read -p "现在重启脚本吗？(y/n): " restart
+        if [ "$restart" = "y" ] || [ "$restart" = "Y" ]; then
+            echo "重启脚本..."
+            exec bash "$SCRIPT_DIR/jsonl.sh"
+        fi
+    else
+        echo "更新失败，请检查网络连接或手动下载。"
+        cd "$SCRIPT_DIR"
+        rm -rf "$TEMP_DIR"
+    fi
+    
+    press_any_key
 }
 
 # 启动监控（修改为使用Ctrl+D返回主菜单）
@@ -4553,33 +4617,3 @@ fix_rule_formats() {
 
 # 执行主函数
 main
-
-update_script() {
-    clear
-    echo "正在检查更新..."
-    
-    # 检查是否安装 git
-    if ! command -v git &> /dev/null; then
-        echo "未安装 git，正在尝试安装..."
-        pkg install git -y
-        if [ $? -ne 0 ]; then
-            echo "安装 git 失败，请手动安装后重试。"
-            press_any_key
-            return 1
-        fi
-    fi
-
-    # 拉取最新代码
-    echo "从 GitHub 拉取最新代码..."
-    git pull https://github.com/Liu-fucheng/Jsonl_monitor.git
-    
-    if [ $? -eq 0 ]; then
-        echo "更新成功！请重新运行脚本。"
-        press_any_key
-        exit 0
-    else
-        echo "更新失败，请检查网络或仓库权限。"
-        press_any_key
-        return 1
-    fi
-}
