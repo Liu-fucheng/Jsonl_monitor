@@ -4395,7 +4395,9 @@ main_menu() {
         echo "3. 清除冗余存档"
         echo "4. 存档全部聊天记录"
         echo "5. 更新"
-        echo "6. 退出"
+        echo "6. 压缩全部聊天存档"
+        echo "7. 导入聊天记录进酒馆"
+        echo "8. 退出"
 
         echo -n "选择: "
         choice=$(get_single_key)
@@ -4420,6 +4422,12 @@ main_menu() {
                 update_script
                 ;;
             6)
+                compress_all_chats
+                ;;
+            7)
+                import_chat_records
+                ;;
+            8)
                 echo "退出程序"
                 exit 0
                 ;;
@@ -4681,3 +4689,408 @@ fix_rule_formats() {
 
 # 执行主函数
 main
+
+# 导入聊天记录进酒馆功能
+import_chat_records() {
+    clear
+    echo "====== 导入聊天记录进酒馆 ======"
+    
+    # 确认源目录存在
+    if [ ! -d "$SOURCE_DIR" ]; then
+        echo "错误：酒馆聊天记录目录不存在: $SOURCE_DIR"
+        echo "请确保SillyTavern安装正确且路径设置正确。"
+        press_any_key
+        return
+    fi
+    
+    # 检查备份目录是否存在
+    if [ ! -d "$SAVE_BASE_DIR" ]; then
+        echo "错误：备份目录不存在: $SAVE_BASE_DIR"
+        echo "请先使用存档功能创建备份。"
+        press_any_key
+        return
+    fi
+    
+    # 查找所有角色目录
+    local char_dirs=()
+    mapfile -t char_dirs < <(find "$SAVE_BASE_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+    
+    if [ ${#char_dirs[@]} -eq 0 ]; then
+        echo "未找到任何角色目录。请先使用存档功能创建备份。"
+        press_any_key
+        return
+    fi
+    
+    # 要求输入角色名进行搜索
+    local search_term=""
+    local filtered_char_dirs=()
+    while true; do
+        echo ""
+        echo "请输入要导入的角色名（支持模糊搜索，直接回车显示所有角色）："
+        read -r search_term
+        
+        # 过滤角色目录
+        filtered_char_dirs=()
+        if [ -z "$search_term" ]; then
+            filtered_char_dirs=("${char_dirs[@]}")
+        else
+            for dir in "${char_dirs[@]}"; do
+                local char_name=$(basename "$dir")
+                if [[ "$char_name" == *"$search_term"* ]]; then
+                    filtered_char_dirs+=("$dir")
+                fi
+            done
+        fi
+        
+        # 显示匹配结果
+        if [ ${#filtered_char_dirs[@]} -eq 0 ]; then
+            echo "未找到匹配的角色，请重新输入或按回车显示所有角色。"
+        else
+            break
+        fi
+    done
+    
+    # 显示匹配的角色列表供选择
+    echo ""
+    echo "找到以下匹配的角色："
+    for i in "${!filtered_char_dirs[@]}"; do
+        local char_name=$(basename "${filtered_char_dirs[$i]}")
+        echo "$((i+1)). $char_name"
+    done
+    
+    # 选择角色目录
+    local selected_char_index=0
+    while true; do
+        echo ""
+        echo "请输入角色序号 (1-${#filtered_char_dirs[@]}):"
+        read -r selected_char_index
+        
+        # 验证输入
+        if [[ ! "$selected_char_index" =~ ^[0-9]+$ ]] || [ "$selected_char_index" -lt 1 ] || [ "$selected_char_index" -gt ${#filtered_char_dirs[@]} ]; then
+            echo "无效的序号，请重新输入。"
+        else
+            break
+        fi
+    done
+    
+    # 获取选择的角色目录
+    local selected_char_dir="${filtered_char_dirs[$((selected_char_index-1))]}"
+    local char_name=$(basename "$selected_char_dir")
+    echo "已选择角色: $char_name"
+    
+    # 查找该角色下的所有聊天记录目录
+    local chat_dirs=()
+    mapfile -t chat_dirs < <(find "$selected_char_dir" -mindepth 1 -maxdepth 1 -type d | sort)
+    
+    if [ ${#chat_dirs[@]} -eq 0 ]; then
+        echo "该角色下未找到任何聊天记录。"
+        press_any_key
+        return
+    fi
+    
+    # 显示聊天记录列表供选择
+    echo ""
+    echo "找到以下聊天记录："
+    for i in "${!chat_dirs[@]}"; do
+        local chat_name=$(basename "${chat_dirs[$i]}")
+        echo "$((i+1)). $chat_name"
+    done
+    
+    # 选择聊天记录
+    local selected_chat_index=0
+    while true; do
+        echo ""
+        echo "请输入聊天记录序号 (1-${#chat_dirs[@]}):"
+        read -r selected_chat_index
+        
+        # 验证输入
+        if [[ ! "$selected_chat_index" =~ ^[0-9]+$ ]] || [ "$selected_chat_index" -lt 1 ] || [ "$selected_chat_index" -gt ${#chat_dirs[@]} ]; then
+            echo "无效的序号，请重新输入。"
+        else
+            break
+        fi
+    done
+    
+    # 获取选择的聊天记录目录
+    local selected_chat_dir="${chat_dirs[$((selected_chat_index-1))]}"
+    local chat_name=$(basename "$selected_chat_dir")
+    echo "已选择聊天记录: $chat_name"
+    
+    # 查找该聊天记录下的所有楼层文件
+    local floor_files=()
+    while read -r file; do
+        if [[ "$file" == *"楼"* ]]; then
+            floor_files+=("$file")
+        fi
+    done < <(find "$selected_chat_dir" -type f \( -name "*.jsonl" -o -name "*.xz" \) | sort)
+    
+    if [ ${#floor_files[@]} -eq 0 ]; then
+        echo "该聊天记录下未找到任何楼层文件。"
+        press_any_key
+        return
+    fi
+    
+    # 统计信息
+    local min_floor=999999
+    local max_floor=0
+    local total_files=${#floor_files[@]}
+    
+    for file in "${floor_files[@]}"; do
+        local floor_num=$(echo "$file" | grep -o '[0-9]\+楼' | grep -o '[0-9]\+')
+        if [ -n "$floor_num" ]; then
+            if [ "$floor_num" -lt "$min_floor" ]; then
+                min_floor=$floor_num
+            fi
+            if [ "$floor_num" -gt "$max_floor" ]; then
+                max_floor=$floor_num
+            fi
+        fi
+    done
+    
+    # 显示统计信息
+    echo ""
+    echo "楼层范围: $min_floor - $max_floor"
+    echo "文件总数: $total_files"
+    
+    # 选择导入模式
+    echo ""
+    echo "请选择导入模式:"
+    echo "1. 导入最新楼层 ($max_floor 楼)"
+    echo "2. 导入指定楼层"
+    
+    local import_mode=0
+    while true; do
+        read -r import_mode
+        if [ "$import_mode" = "1" ] || [ "$import_mode" = "2" ]; then
+            break
+        else
+            echo "无效选择，请重新输入 (1 或 2):"
+        fi
+    done
+    
+    # 确定要导入的文件
+    local file_to_import=""
+    
+    if [ "$import_mode" = "1" ]; then
+        # 导入最新楼层
+        for file in "${floor_files[@]}"; do
+            local floor_num=$(echo "$file" | grep -o '[0-9]\+楼' | grep -o '[0-9]\+')
+            if [ "$floor_num" = "$max_floor" ]; then
+                file_to_import="$file"
+                break
+            fi
+        done
+    else
+        # 导入指定楼层
+        echo ""
+        echo "请输入要导入的楼层号 ($min_floor-$max_floor):"
+        local target_floor=0
+        read -r target_floor
+        
+        # 先尝试精确匹配
+        local exact_match=""
+        for file in "${floor_files[@]}"; do
+            local floor_num=$(echo "$file" | grep -o '[0-9]\+楼' | grep -o '[0-9]\+')
+            if [ "$floor_num" = "$target_floor" ]; then
+                exact_match="$file"
+                break
+            fi
+        done
+        
+        if [ -n "$exact_match" ]; then
+            file_to_import="$exact_match"
+        else
+            # 没有精确匹配，找出最接近的3个楼层
+            echo "未找到 $target_floor 楼的备份文件。"
+            echo "以下是最接近的楼层文件："
+            
+            # 计算与目标楼层的差距
+            declare -A distance_map
+            for file in "${floor_files[@]}"; do
+                local floor_num=$(echo "$file" | grep -o '[0-9]\+楼' | grep -o '[0-9]\+')
+                if [ -n "$floor_num" ]; then
+                    local distance=$(( floor_num > target_floor ? floor_num - target_floor : target_floor - floor_num ))
+                    distance_map["$file"]=$distance
+                fi
+            done
+            
+            # 按照差距排序
+            local sorted_files=()
+            while [ ${#distance_map[@]} -gt 0 ] && [ ${#sorted_files[@]} -lt 3 ]; do
+                local min_distance=999999
+                local closest_file=""
+                
+                for file in "${!distance_map[@]}"; do
+                    if [ "${distance_map[$file]}" -lt "$min_distance" ]; then
+                        min_distance="${distance_map[$file]}"
+                        closest_file="$file"
+                    fi
+                done
+                
+                if [ -n "$closest_file" ]; then
+                    sorted_files+=("$closest_file")
+                    unset distance_map["$closest_file"]
+                else
+                    break
+                fi
+            done
+            
+            # 显示最接近的文件
+            for i in "${!sorted_files[@]}"; do
+                local floor_num=$(echo "${sorted_files[$i]}" | grep -o '[0-9]\+楼' | grep -o '[0-9]\+')
+                echo "$((i+1)). $floor_num 楼"
+            done
+            
+            # 选择一个文件
+            local closest_index=0
+            while true; do
+                echo "请选择要导入的楼层 (1-${#sorted_files[@]}):"
+                read -r closest_index
+                
+                if [[ ! "$closest_index" =~ ^[0-9]+$ ]] || [ "$closest_index" -lt 1 ] || [ "$closest_index" -gt ${#sorted_files[@]} ]; then
+                    echo "无效的序号，请重新输入。"
+                else
+                    break
+                fi
+            done
+            
+            file_to_import="${sorted_files[$((closest_index-1))]}"
+        fi
+    fi
+    
+    if [ -z "$file_to_import" ]; then
+        echo "未找到符合条件的文件。"
+        press_any_key
+        return
+    fi
+    
+    # 确认导入方式
+    echo ""
+    echo "请选择导入方式:"
+    echo "1. 覆盖原始聊天记录"
+    echo "2. 新建聊天记录"
+    
+    local import_type=0
+    while true; do
+        read -r import_type
+        if [ "$import_type" = "1" ] || [ "$import_type" = "2" ]; then
+            break
+        else
+            echo "无效选择，请重新输入 (1 或 2):"
+        fi
+    done
+    
+    # 确保目标目录存在
+    local target_char_dir="$SOURCE_DIR/$char_name"
+    mkdir -p "$target_char_dir"
+    
+    # 确定目标文件名
+    local target_filename=""
+    if [ "$import_type" = "1" ]; then
+        target_filename="$target_char_dir/$chat_name.jsonl"
+    else
+        target_filename="$target_char_dir/$chat_name imported.jsonl"
+    fi
+    
+    echo ""
+    echo "即将导入文件:"
+    echo "源文件: $file_to_import"
+    echo "目标文件: $target_filename"
+    echo "确认导入? (y/n)"
+    
+    local confirm=""
+    read -r confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        echo "导入已取消。"
+        press_any_key
+        return
+    fi
+    
+    # 执行导入操作
+    echo "正在导入文件..."
+    
+    # 如果是xz格式，先解压
+    if [[ "$file_to_import" == *.xz ]]; then
+        xz -dc "$file_to_import" > "$target_filename"
+    else
+        cp "$file_to_import" "$target_filename"
+    fi
+    
+    if [ $? -eq 0 ]; then
+        echo "导入成功！"
+    else
+        echo "导入失败，请检查文件权限和磁盘空间。"
+    fi
+    
+    press_any_key
+}
+
+# 压缩全部聊天存档功能
+compress_all_chats() {
+    clear
+    echo "====== 压缩全部聊天存档 ======"
+    
+    # 检查是否安装了xz
+    if ! command -v xz &> /dev/null; then
+        echo "未安装xz工具，正在尝试安装..."
+        install_xz
+        
+        # 再次检查是否安装成功
+        if ! command -v xz &> /dev/null; then
+            echo "安装xz工具失败，无法继续压缩操作。"
+            press_any_key
+            return 1
+        fi
+    fi
+    
+    echo "正在扫描需要压缩的存档文件..."
+    
+    # 递归查找所有的jsonl文件
+    local jsonl_files=()
+    mapfile -t jsonl_files < <(find "$SAVE_BASE_DIR" -type f -name "*.jsonl")
+    
+    local total_files=${#jsonl_files[@]}
+    local compressed_files=0
+    local failed_files=0
+    
+    if [ $total_files -eq 0 ]; then
+        echo "未找到需要压缩的聊天存档文件。"
+        press_any_key
+        return
+    fi
+    
+    echo "找到 $total_files 个存档文件，开始压缩..."
+    echo "请稍候，这可能需要一些时间..."
+    
+    for file in "${jsonl_files[@]}"; do
+        # 创建压缩文件名
+        local xz_file="${file%.jsonl}.xz"
+        
+        # 如果已存在同名的xz文件，直接删除原始jsonl文件
+        if [ -f "$xz_file" ]; then
+            rm -f "$file"
+            compressed_files=$((compressed_files + 1))
+            continue
+        fi
+        
+        # 压缩文件
+        if xz -c "$file" > "$xz_file"; then
+            # 压缩成功，删除原始文件
+            rm -f "$file"
+            compressed_files=$((compressed_files + 1))
+        else
+            failed_files=$((failed_files + 1))
+        fi
+    done
+    
+    echo ""
+    echo "压缩完成！"
+    echo "总共处理: $total_files 个文件"
+    echo "成功压缩: $compressed_files 个文件"
+    
+    if [ $failed_files -gt 0 ]; then
+        echo "压缩失败: $failed_files 个文件"
+    fi
+    
+    press_any_key
+}
