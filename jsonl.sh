@@ -4499,8 +4499,8 @@ update_script() {
         # 中国用户且未禁用代理时，使用curl直接下载
         echo "正在使用curl直接下载jsonl.sh..."
         # 显示具体下载地址以便诊断
-        local raw_url="https://github.com/${GITHUB_REPO}/raw/main/jsonl.sh"
-        local proxy_url="${GH_FAST}${raw_url}"
+        local raw_url="https://raw.githubusercontent.com/${GITHUB_REPO}/main/jsonl.sh"
+        local proxy_url="${GH_FAST}${raw_url#https://}"
         echo "原始地址: ${raw_url}"
         echo "代理地址: ${proxy_url}"
         
