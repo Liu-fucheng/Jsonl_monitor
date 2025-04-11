@@ -1038,8 +1038,8 @@ get_floor_range() {
     local min_floor=999999
     local max_floor=0
     
-    # 找出所有楼层文件
-    for file in "$dir"/*楼*.jsonl; do
+    # 找出所有楼层文件(包括jsonl和xz格式)
+    for file in "$dir"/*楼*.jsonl "$dir"/*楼*.xz; do
         [ -f "$file" ] || continue
         
         # 提取楼层数
@@ -1072,8 +1072,8 @@ count_files_in_dir() {
     local dir="$1"
     local count=0
     
-    # 查找并计数所有jsonl文件
-    for file in "$dir"/*楼*.jsonl; do
+    # 查找并计数所有jsonl和xz文件
+    for file in "$dir"/*楼*.jsonl "$dir"/*楼*.xz; do
         [ -f "$file" ] || continue
         count=$((count + 1))
     done
@@ -1092,7 +1092,7 @@ count_files_in_range() {
     local total_files=0
     
     # 计算在范围内的文件数量
-    for file in "$dir"/*楼*.jsonl; do
+    for file in "$dir"/*楼*.jsonl "$dir"/*楼*.xz; do
         [ -f "$file" ] || continue
         
         # 提取楼层数
@@ -1119,7 +1119,7 @@ will_dir_be_empty() {
     
     # 找出最新楼层
     local latest_floor=0
-    for file in "$dir"/*楼*.jsonl; do
+    for file in "$dir"/*楼*.jsonl "$dir"/*楼*.xz; do
         [ -f "$file" ] || continue
         
         # 提取楼层数
@@ -1148,7 +1148,7 @@ will_dir_be_empty_by_multiple() {
     
     # 找出最新楼层
     local latest_floor=0
-    for file in "$dir"/*楼*.jsonl; do
+    for file in "$dir"/*楼*.jsonl "$dir"/*楼*.xz; do
         [ -f "$file" ] || continue
         
         # 提取楼层数
@@ -1163,7 +1163,7 @@ will_dir_be_empty_by_multiple() {
     local files_to_delete=0
     local total_files=0
     
-    for file in "$dir"/*楼*.jsonl; do
+    for file in "$dir"/*楼*.jsonl "$dir"/*楼*.xz; do
         [ -f "$file" ] || continue
         
         # 提取楼层数
@@ -1512,7 +1512,7 @@ direct_cleanup_range() {
     local deleted_count=0
     
     # 找出要删除的文件
-    for file in "$dir"/*楼*.jsonl; do
+    for file in "$dir"/*楼*.jsonl "$dir"/*楼*.xz; do
         [ -f "$file" ] || continue
         
         # 提取楼层数
@@ -1538,7 +1538,7 @@ cleanup_chat_dir() {
     echo "清理目录: $dir"
     
     # 找出最新楼层和需要保留的楼层文件
-    for file in "$dir"/*楼*.jsonl; do
+    for file in "$dir"/*楼*.jsonl "$dir"/*楼*.xz; do
         [ -f "$file" ] || continue
         
         # 提取楼层数
@@ -1557,7 +1557,7 @@ cleanup_chat_dir() {
     fi
     
     # 确定要保留的文件
-    for file in "$dir"/*楼*.jsonl; do
+    for file in "$dir"/*楼*.jsonl "$dir"/*楼*.xz; do
         [ -f "$file" ] || continue
         
         # 提取楼层数
@@ -1569,7 +1569,7 @@ cleanup_chat_dir() {
     done
     
     # 删除不需要保留的文件
-    for file in "$dir"/*楼*.jsonl; do
+    for file in "$dir"/*楼*.jsonl "$dir"/*楼*.xz; do
         [ -f "$file" ] || continue
         
         keep=0
@@ -1628,7 +1628,7 @@ cleanup_range() {
         read -r confirm
         if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
             # 删除唯一的文件
-            for file in "$dir"/*楼*.jsonl; do
+            for file in "$dir"/*楼*.jsonl "$dir"/*楼*.xz; do
                 [ -f "$file" ] || continue
                 rm "$file"
                 echo "删除文件: $file"
@@ -1643,7 +1643,7 @@ cleanup_range() {
     
     # 找出最新楼层
     local latest_floor=0
-    for file in "$dir"/*楼*.jsonl; do
+    for file in "$dir"/*楼*.jsonl "$dir"/*楼*.xz; do
         [ -f "$file" ] || continue
         
         # 提取楼层数
@@ -1655,7 +1655,7 @@ cleanup_range() {
     done
     
     # 找出要删除的文件
-    for file in "$dir"/*楼*.jsonl; do
+    for file in "$dir"/*楼*.jsonl "$dir"/*楼*.xz; do
         [ -f "$file" ] || continue
         
         # 提取楼层数
@@ -4792,8 +4792,8 @@ main_menu() {
         echo "作者：橄榄"
         echo "版本：1.3"
         echo "首次使用请先输入2进入设置"
-        echo "第一次写脚本，如遇bug请在github上反馈( *ˊᵕˋ)✩︎‧₊"
-        echo "github：https://github.com/Liu-fucheng/Jsonl_monitor"
+        echo "第一次写脚本，如遇bug请在GitHub上反馈( *ˊᵕˋ)✩︎‧₊"
+        echo "GitHub链接：https://github.com/Liu-fucheng/Jsonl_monitor"
         echo ""
         echo "===== JSONL自动存档工具 ====="
         echo "1. 启动"
