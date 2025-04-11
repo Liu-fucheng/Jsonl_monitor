@@ -478,20 +478,69 @@ process_content_changes() {
     # 获取当前文件内容
     local content=$(cat "$file")
     
-    # 查找与当前楼层同名的文件
+    # 检查是否安装了xz
+    if ! command -v xz &> /dev/null; then
+        echo "未安装xz工具，正在尝试安装..."
+        # 尝试使用不同的包管理器安装xz
+        if command -v apt &> /dev/null; then
+            sudo apt-get update && sudo apt-get install -y xz-utils
+        elif command -v yum &> /dev/null; then
+            sudo yum install -y xz
+        elif command -v pacman &> /dev/null; then
+            sudo pacman -S --noconfirm xz
+        elif command -v pkg &> /dev/null; then
+            pkg install -y xz
+        elif command -v brew &> /dev/null; then
+            brew install xz
+        else
+            echo "无法自动安装xz工具，请手动安装后重试。"
+            press_any_key
+            return 1
+        fi
+        
+        # 再次检查是否安装成功
+        if ! command -v xz &> /dev/null; then
+            echo "安装xz工具失败，将使用原始jsonl格式保存。"
+        fi
+    fi
+    
+    # 首先检查.xz格式的文件
+    for existing_file in "$target_dir/${floor}楼"*.xz; do
+        [ -f "$existing_file" ] || continue
+        
+        # 比较内容
+        local existing_content=$(xz -dc "$existing_file" 2>/dev/null)
+        if [ "$existing_content" != "$content" ]; then
+            # 内容不同，用新内容替换旧文件
+            echo "$content" | xz -c > "$existing_file"
+            echo "更新同楼层但内容不同的xz文件: $existing_file"
+            return 0
+        else
+            # 内容相同，不需要更新
+            echo "存在同楼层且内容相同的xz文件: $existing_file，无需更新"
+            return 0
+        fi
+    done
+    
+    # 然后检查旧的.jsonl文件（如果存在的话）
     for existing_file in "$target_dir/${floor}楼"*.jsonl; do
         [ -f "$existing_file" ] || continue
         
         # 比较内容
         compare_file_contents <(echo "$content") "$existing_file"
         if [ $? -ne 0 ]; then
-            # 内容不同，用新内容替换旧文件
-            echo "$content" > "$existing_file"
-            echo "更新同楼层但内容不同的文件: $existing_file"
+            # 内容不同，用新内容替换旧文件，并转换为.xz格式
+            local xz_file="${existing_file%.jsonl}.xz"
+            echo "$content" | xz -c > "$xz_file"
+            echo "将jsonl文件转换为xz格式并更新: $xz_file"
+            rm "$existing_file"  # 删除旧的jsonl文件
             return 0
         else
-            # 内容相同，不需要更新
-            echo "存在同楼层且内容相同的文件: $existing_file，无需更新"
+            # 内容相同，转换为.xz格式
+            local xz_file="${existing_file%.jsonl}.xz"
+            echo "$content" | xz -c > "$xz_file"
+            echo "将相同内容的jsonl文件转换为xz格式: $xz_file"
+            rm "$existing_file"  # 删除旧的jsonl文件
             return 0
         fi
     done
@@ -501,16 +550,31 @@ process_content_changes() {
         # 准备保存文件名
         local base_save_name="${target_dir}/${floor}楼"
         
-        # 获取唯一文件名，同时传入文件内容进行比对
-        local save_file=$(get_unique_filename "$base_save_name" "jsonl" "$floor" "$content")
-        
-        # 检查返回的文件是否已存在
-        if [ -f "$save_file" ]; then
-            echo "文件内容已存在，跳过创建: $save_file"
+        # 如果xz可用，使用xz格式保存
+        if command -v xz &> /dev/null; then
+            # 获取唯一文件名，同时传入文件内容进行比对
+            local save_file=$(get_xz_unique_filename "$base_save_name" "$floor" "$content")
+            
+            # 检查返回的文件是否已存在
+            if [ -f "$save_file" ]; then
+                echo "文件内容已存在，跳过创建: $save_file"
+            else
+                # 压缩并保存文件
+                echo "$content" | xz -c > "$save_file"
+                echo "已保存整个文件到: $save_file"
+            fi
         else
-            # 保存整个文件
-            echo "$content" > "$save_file"
-            echo "已保存整个文件到: $save_file"
+            # xz不可用，回退到jsonl格式
+            local save_file=$(get_unique_filename "$base_save_name" "jsonl" "$floor" "$content")
+            
+            # 检查返回的文件是否已存在
+            if [ -f "$save_file" ]; then
+                echo "文件内容已存在，跳过创建: $save_file"
+            else
+                # 保存整个文件
+                echo "$content" > "$save_file"
+                echo "已保存整个文件到: $save_file"
+            fi
         fi
     fi
 }
@@ -651,38 +715,91 @@ process_changes() {
         # 检查是否有同行数但不同内容的文件需要更新
         local found_matching_file=0
         
-        # 查找与当前楼层同名的文件
-        for existing_file in "$target_dir/${floor}楼"*.jsonl; do
+        # 首先检查xz格式文件
+        for existing_file in "$target_dir/${floor}楼"*.xz; do
             [ -f "$existing_file" ] || continue
             
-            # 比较内容
-            compare_file_contents <(echo "$content") "$existing_file"
-            if [ $? -ne 0 ]; then
+            # 解压并比较内容
+            local existing_content=$(xz -dc "$existing_file" 2>/dev/null)
+            if [ "$existing_content" != "$content" ]; then
                 # 内容不同，用新内容替换旧文件
-                echo "$content" > "$existing_file"
-                echo "更新同楼层但内容不同的文件: $existing_file"
+                echo "$content" | xz -c > "$existing_file"
+                echo "更新同楼层但内容不同的xz文件: $existing_file"
                 found_matching_file=1
                 break
             else
                 # 内容相同，不需要更新
-                echo "存在同楼层且内容相同的文件: $existing_file，无需更新"
+                echo "存在同楼层且内容相同的xz文件: $existing_file，无需更新"
                 found_matching_file=1
                 break
             fi
         done
         
+        # 如果没有找到xz格式文件，再检查jsonl格式文件
+        if [ $found_matching_file -eq 0 ]; then
+            for existing_file in "$target_dir/${floor}楼"*.jsonl; do
+                [ -f "$existing_file" ] || continue
+                
+                # 比较内容
+                compare_file_contents <(echo "$content") "$existing_file"
+                if [ $? -ne 0 ]; then
+                    # 内容不同，用新内容替换旧文件，并转换为xz格式
+                    if command -v xz &> /dev/null; then
+                        local xz_file="${existing_file%.jsonl}.xz"
+                        echo "$content" | xz -c > "$xz_file"
+                        echo "将不同内容的jsonl文件更新并转换为xz格式: $xz_file"
+                        rm "$existing_file"  # 删除旧的jsonl文件
+                    else
+                        # xz不可用，仍使用jsonl格式更新
+                        echo "$content" > "$existing_file"
+                        echo "更新同楼层但内容不同的jsonl文件: $existing_file"
+                    fi
+                    found_matching_file=1
+                    break
+                else
+                    # 内容相同，尝试转换为xz格式
+                    if command -v xz &> /dev/null; then
+                        local xz_file="${existing_file%.jsonl}.xz"
+                        echo "$content" | xz -c > "$xz_file"
+                        echo "将相同内容的jsonl文件转换为xz格式: $xz_file"
+                        rm "$existing_file"  # 删除旧的jsonl文件
+                    else
+                        # xz不可用，保留jsonl格式
+                        echo "存在同楼层且内容相同的jsonl文件: $existing_file，无需更新"
+                    fi
+                    found_matching_file=1
+                    break
+                fi
+            done
+        fi
+        
         # 如果没有找到同楼层文件，创建新文件
         if [ $found_matching_file -eq 0 ]; then
-            # 获取唯一文件名，同时传入文件内容进行比对
-            local save_file=$(get_unique_filename "$base_save_name" "jsonl" "$floor" "$content")
-            
-            # 检查返回的文件是否已存在
-            if [ -f "$save_file" ]; then
-                echo "文件内容已存在，跳过创建: $save_file"
+            # 检查是否安装了xz
+            if command -v xz &> /dev/null; then
+                # 获取唯一文件名，同时传入文件内容进行比对（使用xz专用函数）
+                local save_file=$(get_xz_unique_filename "$base_save_name" "$floor" "$content")
+                
+                # 检查返回的文件是否已存在
+                if [ -f "$save_file" ]; then
+                    echo "文件内容已存在，跳过创建: $save_file"
+                else
+                    # 保存压缩文件
+                    echo "$content" | xz -c > "$save_file"
+                    echo "已保存整个文件到: $save_file (xz格式)"
+                fi
             else
-                # 保存整个文件
-                echo "$content" > "$save_file"
-                echo "已保存整个文件到: $save_file"
+                # xz不可用，回退到jsonl格式
+                local save_file=$(get_unique_filename "$base_save_name" "jsonl" "$floor" "$content")
+                
+                # 检查返回的文件是否已存在
+                if [ -f "$save_file" ]; then
+                    echo "文件内容已存在，跳过创建: $save_file"
+                else
+                    # 保存整个文件
+                    echo "$content" > "$save_file"
+                    echo "已保存整个文件到: $save_file (jsonl格式)"
+                fi
             fi
         fi
         
@@ -785,6 +902,35 @@ archive_all_chats() {
     clear
     echo "开始扫描..."
     
+    # 检查是否安装了xz
+    if ! command -v xz &> /dev/null; then
+        echo "未安装xz工具，正在尝试安装..."
+        # 尝试使用不同的包管理器安装xz
+        if command -v apt &> /dev/null; then
+            sudo apt-get update && sudo apt-get install -y xz-utils
+        elif command -v yum &> /dev/null; then
+            sudo yum install -y xz
+        elif command -v pacman &> /dev/null; then
+            sudo pacman -S --noconfirm xz
+        elif command -v pkg &> /dev/null; then
+            pkg install -y xz
+        elif command -v brew &> /dev/null; then
+            brew install xz
+        else
+            echo "无法自动安装xz工具，请手动安装后重试。"
+            press_any_key
+            return 1
+        fi
+        
+        # 再次检查是否安装成功
+        if ! command -v xz &> /dev/null; then
+            echo "安装xz工具失败，无法继续操作。"
+            press_any_key
+            return 1
+        fi
+        echo "xz工具安装成功，继续处理..."
+    fi
+    
     # 获取所有JSONL文件
     mapfile -t jsonl_files < <(find "$SOURCE_DIR" -type f -name "*.jsonl")
     
@@ -810,9 +956,9 @@ archive_all_chats() {
         # 计算楼层数 (行数)
         floor=$((current_count))
         
-        # 检查目标目录中是否已有该楼层的文件
+        # 检查目标目录中是否已有该楼层的文件（检查.jsonl和.xz格式）
         found=0
-        for existing_file in "$target_dir/${floor}楼"*.jsonl; do
+        for existing_file in "$target_dir/${floor}楼"*.jsonl "$target_dir/${floor}楼"*.xz; do
             if [ -f "$existing_file" ]; then
                 found=1
                 break
@@ -830,15 +976,16 @@ archive_all_chats() {
         
         # 保存文件
         if should_save_floor "$floor" "$floor" "$target_dir"; then
-            # 准备保存文件名
+            # 准备保存文件名（改为.xz格式）
             base_save_name="${target_dir}/${floor}楼"
             
-            # 获取唯一文件名，同时传入文件内容进行比对
-            save_file=$(get_unique_filename "$base_save_name" "jsonl" "$floor" "$content")
+            # 获取唯一文件名，同时传入文件内容进行比对（使用xz专用函数）
+            save_file=$(get_xz_unique_filename "$base_save_name" "$floor" "$content")
             
-            # 保存文件内容
+            # 保存文件内容（直接压缩保存为.xz文件）
             if [ ! -f "$save_file" ]; then
-                echo "$content" > "$save_file"
+                echo "$content" | xz -c > "$save_file"
+                echo "已保存 $save_file"
             fi
         fi
         
@@ -1148,21 +1295,6 @@ will_dir_be_empty_by_multiple() {
     
     # 找出最新楼层
     local latest_floor=0
-    for file in "$dir"/*楼*.jsonl "$dir"/*楼*.xz; do
-        [ -f "$file" ] || continue
-        
-        # 提取楼层数
-        floor=$(echo "$file" | grep -o '[0-9]\+楼' | grep -o '[0-9]\+')
-        
-        if [ -n "$floor" ] && [ "$floor" -gt "$latest_floor" ]; then
-            latest_floor=$floor
-        fi
-    done
-    
-    # 计算可能被删除的文件数
-    local files_to_delete=0
-    local total_files=0
-    
     for file in "$dir"/*楼*.jsonl "$dir"/*楼*.xz; do
         [ -f "$file" ] || continue
         
@@ -5130,3 +5262,49 @@ main() {
 
 # 执行主函数
 main
+
+# 获取不重复的xz压缩文件名
+get_xz_unique_filename() {
+    local base_name="$1"
+    local floor_number="$2"  # 楼层号
+    local content="$3"      # 文件内容（未压缩）
+    local dir_path="$(dirname "$base_name")"
+    
+    # 基础文件名
+    local base_file="${base_name}.xz"
+    
+    # 先检查是否存在同名同楼层的文件
+    if [ -f "$base_file" ]; then
+        # 存在同名文件，比对解压后的内容
+        local existing_content=$(xz -dc "$base_file" 2>/dev/null)
+        if [ "$existing_content" = "$content" ]; then
+            # 内容相同，直接返回现有文件名
+            echo "$base_file"
+            return
+        fi
+    fi
+    
+    # 内容不同或文件不存在，查找可用文件名
+    local output_file="$base_file"
+    local counter=1
+    
+    while [ -f "$output_file" ]; do
+        output_file="${base_name}(${counter}).xz"
+        # 如果存在已编号的文件，也比对内容
+        if [ -f "$output_file" ]; then
+            local existing_content=$(xz -dc "$output_file" 2>/dev/null)
+            if [ "$existing_content" = "$content" ]; then
+                # 内容相同，返回现有文件名
+                echo "$output_file"
+                return
+            fi
+        fi
+        counter=$((counter + 1))
+    done
+    
+    # 记录此楼层已处理
+    local key="${dir_path}_${floor_number}"
+    processed_floors["$key"]="$output_file"
+    
+    echo "$output_file"
+}
