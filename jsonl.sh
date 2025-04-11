@@ -4498,7 +4498,7 @@ update_script() {
     if [ "$country_code" = "CN" ] && [[ ! "$disable_proxy" =~ ^[Yy]$ ]]; then
         # 中国用户且未禁用代理时，使用curl直接下载
         echo "正在使用curl直接下载jsonl.sh..."
-        curl -O ${GH_FAST}https://github.com/${GITHUB_REPO}/jsonl.sh
+        curl -O ${GH_FAST}https://github.com/${GITHUB_REPO}/blob/main/jsonl.sh
         if [ $? -eq 0 ]; then
             echo "直接下载成功"
         else
