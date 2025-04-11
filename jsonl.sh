@@ -11,7 +11,7 @@ CONFIG_FILE="${LOG_DIR}/config.conf"
 RULES_FILE="${LOG_DIR}/rules.txt"
 
 # GitHub相关设置
-GH_PROXY="https://ghproxy.com/"
+GH_PROXY="https://ghproxy.top/"
 GITHUB_REPO="Liu-fucheng/Jsonl_monitor"
 GH_DOWNLOAD_URL_BASE="https://github.com/${GITHUB_REPO}/raw/main"
 
