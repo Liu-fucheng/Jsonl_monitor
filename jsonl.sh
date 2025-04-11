@@ -2292,9 +2292,7 @@ browse_folders() {
     echo "$scope_choice"
     
     if [ "$scope_choice" = "1" ]; then
-        if [ -n "${CHAR_RULES[$char_name]}" ]; then
-            handle_existing_rule "char" "$char_name" && continue
-        fi
+        # 修复: 不管是否有规则，直接进入角色规则菜单让用户处理
         char_rules_menu "$char_name"
     elif [ "$scope_choice" = "2" ]; then
         select_chat_dir "$char_name"
@@ -2420,9 +2418,7 @@ search_by_name() {
     echo "$scope_choice"
     
     if [ "$scope_choice" = "1" ]; then
-        if [ -n "${CHAR_RULES[$char_name]}" ]; then
-            handle_existing_rule "char" "$char_name" && return
-        fi
+        # 修复: 不管是否有规则，直接进入角色规则菜单让用户处理
         char_rules_menu "$char_name"
     elif [ "$scope_choice" = "2" ]; then
         select_chat_dir "$char_name"
@@ -4413,26 +4409,28 @@ import_chat_records() {
     local search_term=""
     local filtered_char_dirs=()
     while true; do
-        echo ""
-        echo "请输入要导入的角色名（支持模糊搜索，直接回车显示所有角色）："
+        echo -n "请输入要导入的角色名（支持模糊搜索，直接回车取消）："
         read -r search_term
+        
+        # 如果直接回车，取消操作
+        if [ -z "$search_term" ]; then
+            echo "已取消导入操作"
+            press_any_key
+            return
+        fi
         
         # 过滤角色目录
         filtered_char_dirs=()
-        if [ -z "$search_term" ]; then
-            filtered_char_dirs=("${char_dirs[@]}")
-        else
-            for dir in "${char_dirs[@]}"; do
-                local char_name=$(basename "$dir")
-                if [[ "$char_name" == *"$search_term"* ]]; then
-                    filtered_char_dirs+=("$dir")
-                fi
-            done
-        fi
+        for dir in "${char_dirs[@]}"; do
+            local char_name=$(basename "$dir")
+            if [[ "$char_name" == *"$search_term"* ]]; then
+                filtered_char_dirs+=("$dir")
+            fi
+        done
         
         # 显示匹配结果
         if [ ${#filtered_char_dirs[@]} -eq 0 ]; then
-            echo "未找到匹配的角色，请重新输入或按回车显示所有角色。"
+            echo "未找到匹配的角色，请重新输入或按回车取消。"
         else
             break
         fi
@@ -4449,12 +4447,15 @@ import_chat_records() {
     # 选择角色目录
     local selected_char_index=0
     while true; do
-        echo ""
-        echo "请输入角色序号 (1-${#filtered_char_dirs[@]}):"
+        echo -n "请输入角色序号 (1-${#filtered_char_dirs[@]})："
         read -r selected_char_index
         
         # 验证输入
-        if [[ ! "$selected_char_index" =~ ^[0-9]+$ ]] || [ "$selected_char_index" -lt 1 ] || [ "$selected_char_index" -gt ${#filtered_char_dirs[@]} ]; then
+        if [ -z "$selected_char_index" ]; then
+            echo "已取消导入操作"
+            press_any_key
+            return
+        elif [[ ! "$selected_char_index" =~ ^[0-9]+$ ]] || [ "$selected_char_index" -lt 1 ] || [ "$selected_char_index" -gt ${#filtered_char_dirs[@]} ]; then
             echo "无效的序号，请重新输入。"
         else
             break
@@ -4487,12 +4488,15 @@ import_chat_records() {
     # 选择聊天记录
     local selected_chat_index=0
     while true; do
-        echo ""
-        echo "请输入聊天记录序号 (1-${#chat_dirs[@]}):"
+        echo -n "请输入聊天记录序号 (1-${#chat_dirs[@]})："
         read -r selected_chat_index
         
         # 验证输入
-        if [[ ! "$selected_chat_index" =~ ^[0-9]+$ ]] || [ "$selected_chat_index" -lt 1 ] || [ "$selected_chat_index" -gt ${#chat_dirs[@]} ]; then
+        if [ -z "$selected_chat_index" ]; then
+            echo "已取消导入操作"
+            press_any_key
+            return
+        elif [[ ! "$selected_chat_index" =~ ^[0-9]+$ ]] || [ "$selected_chat_index" -lt 1 ] || [ "$selected_chat_index" -gt ${#chat_dirs[@]} ]; then
             echo "无效的序号，请重新输入。"
         else
             break
@@ -4506,11 +4510,8 @@ import_chat_records() {
     
     # 查找该聊天记录下的所有楼层文件
     local floor_files=()
-    while read -r file; do
-        if [[ "$file" == *"楼"* ]]; then
-            floor_files+=("$file")
-        fi
-    done < <(find "$selected_chat_dir" -type f \( -name "*.jsonl" -o -name "*.xz" \) | sort)
+    # 查找jsonl和xz文件
+    mapfile -t floor_files < <(find_chat_files "$selected_chat_dir")
     
     if [ ${#floor_files[@]} -eq 0 ]; then
         echo "该聊天记录下未找到任何楼层文件。"
@@ -4518,186 +4519,172 @@ import_chat_records() {
         return
     fi
     
-    # 统计信息
-    local min_floor=999999
-    local max_floor=0
-    local total_files=${#floor_files[@]}
-    
+    # 解析楼层数字
+    local floor_numbers=()
     for file in "${floor_files[@]}"; do
-        local floor_num=$(echo "$file" | grep -o '[0-9]\+楼' | grep -o '[0-9]\+')
+        local basename=$(basename "$file")
+        local floor_num=$(echo "$basename" | grep -oE '^[0-9]+' | head -1)
         if [ -n "$floor_num" ]; then
-            if [ "$floor_num" -lt "$min_floor" ]; then
-                min_floor=$floor_num
-            fi
-            if [ "$floor_num" -gt "$max_floor" ]; then
-                max_floor=$floor_num
-            fi
+            floor_numbers+=("$floor_num")
         fi
     done
     
-    # 显示统计信息
+    # 排序楼层数字
+    IFS=$'\n' floor_numbers=($(sort -n <<<"${floor_numbers[*]}"))
+    unset IFS
+    
+    # 显示楼层范围和文件数量
+    local min_floor=${floor_numbers[0]}
+    local max_floor=${floor_numbers[-1]}
     echo ""
     echo "楼层范围: $min_floor - $max_floor"
-    echo "文件总数: $total_files"
+    echo "文件总数: ${#floor_files[@]}"
+    echo ""
     
     # 选择导入模式
-    echo ""
-    echo "请选择导入模式:"
-    echo "1. 导入最新楼层 ($max_floor 楼)"
-    echo "2. 导入指定楼层"
-    
     local import_mode=0
     while true; do
+        echo -n "请选择导入模式 (1.导入最新楼层 (${max_floor} 楼), 2.导入指定楼层, 直接回车取消)："
         read -r import_mode
-        if [ "$import_mode" = "1" ] || [ "$import_mode" = "2" ]; then
+        
+        if [ -z "$import_mode" ]; then
+            echo "已取消导入操作"
+            press_any_key
+            return
+        elif [ "$import_mode" = "1" ]; then
+            # 导入最新楼层
+            local target_floor="$max_floor"
             break
+        elif [ "$import_mode" = "2" ]; then
+            # 导入指定楼层
+            echo -n "请输入要导入的楼层数："
+            read -r target_floor
+            
+            # 验证楼层是否存在
+            local floor_exists=0
+            for floor in "${floor_numbers[@]}"; do
+                if [ "$floor" = "$target_floor" ]; then
+                    floor_exists=1
+                    break
+                fi
+            done
+            
+            if [ "$floor_exists" -eq 1 ]; then
+                break
+            else
+                echo "指定的楼层不存在，正在查找最接近的楼层..."
+                
+                # 找出最接近的3个楼层
+                local closest_floors=()
+                local floor_diffs=()
+                
+                for floor in "${floor_numbers[@]}"; do
+                    local diff=$((floor > target_floor ? floor - target_floor : target_floor - floor))
+                    floor_diffs+=("$diff:$floor")
+                done
+                
+                # 排序差值
+                IFS=$'\n' floor_diffs=($(sort -n <<<"${floor_diffs[*]}"))
+                unset IFS
+                
+                # 提取前3个最接近的楼层
+                echo "找到以下最接近的楼层："
+                local count=0
+                for item in "${floor_diffs[@]}"; do
+                    IFS=':' read -r diff floor <<< "$item"
+                    count=$((count + 1))
+                    echo "$count. $floor 楼 (相差: $diff)"
+                    closest_floors+=("$floor")
+                    [ "$count" -eq 3 ] && break
+                done
+                
+                echo -n "请选择楼层 (1-$count)："
+                read -r closest_index
+                
+                if [ -z "$closest_index" ]; then
+                    echo "已取消导入操作"
+                    press_any_key
+                    return
+                elif [[ ! "$closest_index" =~ ^[0-9]+$ ]] || [ "$closest_index" -lt 1 ] || [ "$closest_index" -gt "$count" ]; then
+                    echo "无效的序号，请重新输入。"
+                else
+                    target_floor="${closest_floors[$((closest_index-1))]}"
+                    break
+                fi
+            fi
         else
             echo "无效选择，请重新输入 (1 或 2):"
         fi
     done
     
-    # 确定要导入的文件
+    # 找到对应楼层的文件
     local file_to_import=""
-    
-    if [ "$import_mode" = "1" ]; then
-        # 导入最新楼层
-        for file in "${floor_files[@]}"; do
-            local floor_num=$(echo "$file" | grep -o '[0-9]\+楼' | grep -o '[0-9]\+')
-            if [ "$floor_num" = "$max_floor" ]; then
-                file_to_import="$file"
-                break
-            fi
-        done
-    else
-        # 导入指定楼层
-        echo ""
-        echo "请输入要导入的楼层号 ($min_floor-$max_floor):"
-        local target_floor=0
-        read -r target_floor
-        
-        # 先尝试精确匹配
-        local exact_match=""
-        for file in "${floor_files[@]}"; do
-            local floor_num=$(echo "$file" | grep -o '[0-9]\+楼' | grep -o '[0-9]\+')
-            if [ "$floor_num" = "$target_floor" ]; then
-                exact_match="$file"
-                break
-            fi
-        done
-        
-        if [ -n "$exact_match" ]; then
-            file_to_import="$exact_match"
-        else
-            # 没有精确匹配，找出最接近的3个楼层
-            echo "未找到 $target_floor 楼的备份文件。"
-            echo "以下是最接近的楼层文件："
-            
-            # 计算与目标楼层的差距
-            declare -A distance_map
-            for file in "${floor_files[@]}"; do
-                local floor_num=$(echo "$file" | grep -o '[0-9]\+楼' | grep -o '[0-9]\+')
-                if [ -n "$floor_num" ]; then
-                    local distance=$(( floor_num > target_floor ? floor_num - target_floor : target_floor - floor_num ))
-                    distance_map["$file"]=$distance
-                fi
-            done
-            
-            # 按照差距排序
-            local sorted_files=()
-            while [ ${#distance_map[@]} -gt 0 ] && [ ${#sorted_files[@]} -lt 3 ]; do
-                local min_distance=999999
-                local closest_file=""
-                
-                for file in "${!distance_map[@]}"; do
-                    if [ "${distance_map[$file]}" -lt "$min_distance" ]; then
-                        min_distance="${distance_map[$file]}"
-                        closest_file="$file"
-                    fi
-                done
-                
-                if [ -n "$closest_file" ]; then
-                    sorted_files+=("$closest_file")
-                    unset distance_map["$closest_file"]
-                else
-                    break
-                fi
-            done
-            
-            # 显示最接近的文件
-            for i in "${!sorted_files[@]}"; do
-                local floor_num=$(echo "${sorted_files[$i]}" | grep -o '[0-9]\+楼' | grep -o '[0-9]\+')
-                echo "$((i+1)). $floor_num 楼"
-            done
-            
-            # 选择一个文件
-            local closest_index=0
-            while true; do
-                echo "请选择要导入的楼层 (1-${#sorted_files[@]}):"
-                read -r closest_index
-                
-                if [[ ! "$closest_index" =~ ^[0-9]+$ ]] || [ "$closest_index" -lt 1 ] || [ "$closest_index" -gt ${#sorted_files[@]} ]; then
-                    echo "无效的序号，请重新输入。"
-                else
-                    break
-                fi
-            done
-            
-            file_to_import="${sorted_files[$((closest_index-1))]}"
+    for file in "${floor_files[@]}"; do
+        local basename=$(basename "$file")
+        if [[ "$basename" =~ ^${target_floor}楼 ]]; then
+            file_to_import="$file"
+            break
         fi
-    fi
+    done
     
     if [ -z "$file_to_import" ]; then
-        echo "未找到符合条件的文件。"
+        echo "未找到对应楼层的文件，导入失败。"
         press_any_key
         return
     fi
     
-    # 确认导入方式
-    echo ""
-    echo "请选择导入方式:"
-    echo "1. 覆盖原始聊天记录"
-    echo "2. 新建聊天记录"
-    
-    local import_type=0
+    # 选择导入方式
+    local import_type=""
     while true; do
+        echo ""
+        echo "请选择导入方式:"
+        echo "1. 覆盖原始聊天记录"
+        echo "2. 新建聊天记录"
+        echo -n "请选择 (1-2, 直接回车取消)："
         read -r import_type
-        if [ "$import_type" = "1" ] || [ "$import_type" = "2" ]; then
+        
+        if [ -z "$import_type" ]; then
+            echo "已取消导入操作"
+            press_any_key
+            return
+        elif [ "$import_type" = "1" ] || [ "$import_type" = "2" ]; then
             break
         else
-            echo "无效选择，请重新输入 (1 或 2):"
+            echo "无效选择，请重新输入 (1 或 2)"
         fi
     done
     
-    # 确保目标目录存在
-    local target_char_dir="$SOURCE_DIR/$char_name"
-    mkdir -p "$target_char_dir"
-    
-    # 确定目标文件名
+    # 确定目标文件名和路径
     local target_filename=""
     if [ "$import_type" = "1" ]; then
-        target_filename="$target_char_dir/$chat_name.jsonl"
+        # 覆盖原始聊天记录
+        target_filename="$SOURCE_DIR/$char_name/$chat_name.jsonl"
     else
-        target_filename="$target_char_dir/$chat_name imported.jsonl"
+        # 新建聊天记录
+        target_filename="$SOURCE_DIR/$char_name/$chat_name imported.jsonl"
     fi
     
+    # 确保目标目录存在
+    mkdir -p "$(dirname "$target_filename")"
+    
+    # 显示确认信息
     echo ""
     echo "即将导入文件:"
     echo "源文件: $file_to_import"
     echo "目标文件: $target_filename"
-    echo "确认导入? (y/n)"
-    
-    local confirm=""
+    echo -n "确认导入? (y/n)"
     read -r confirm
-    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-        echo "导入已取消。"
+    
+    if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
+        echo "已取消导入操作"
         press_any_key
         return
     fi
     
-    # 执行导入操作
+    # 执行导入
     echo "正在导入文件..."
     
-    # 如果是xz格式，先解压
+    # 检查文件类型并解压或复制
     if [[ "$file_to_import" == *.xz ]]; then
         xz -dc "$file_to_import" > "$target_filename"
     else
@@ -4965,7 +4952,7 @@ update_script() {
     press_any_key
 }
 
-# 启动监控（修改为使用Ctrl+D返回主菜单）
+# 启动监控（修改为支持Termux按键处理）
 start_monitoring() {
     clear
     # 执行初始扫描（只记录信息，不处理变化）
@@ -4974,33 +4961,69 @@ start_monitoring() {
     echo "保存行数记录到日志文件... (共 ${#line_counts[@]} 条记录)"
     
     echo "开始监控JSONL文件变化..."
-    echo -e "\033[32m按Ctrl+D暂停监控，按Ctrl+C退出程序\033[0m"
+    echo -e "\033[32m按Ctrl+D返回主菜单，按Ctrl+C退出程序\033[0m"
     
-    # 设置trap捕获信号
-    trap 'echo "暂停..."; return 0' SIGQUIT  # Ctrl+\
-    trap ':' SIGINT  # 忽略Ctrl+C，由主循环处理
-    
-    # 循环监控
-    while true; do
-        # 检查是否有Ctrl+C或Ctrl+D
-        if read -t 1 -n 1; then
-            case "$REPLY" in
-                $'\x04')  # Ctrl+D
+    # 检测是否在Termux环境下
+    if [ -n "$TERMUX_VERSION" ] || [ -d "/data/data/com.termux" ]; then
+        echo "检测到Termux环境，使用特殊按键处理..."
+        local termux_exit=0
+        
+        # 设置trap捕获信号
+        trap 'termux_exit=2' SIGINT  # Ctrl+C: 退出程序
+        
+        # 循环监控
+        while [ $termux_exit -eq 0 ]; do
+            # 执行智能扫描
+            smart_scan
+            
+            # 检查是否有按键输入
+            if read -t 1 -n 1 input; then
+                if [ "$input" = $'\x04' ]; then  # Ctrl+D: 返回主菜单
                     echo "暂停监控，返回主菜单..."
                     stty sane
                     return 0
-                    ;;
-                $'\x03')  # Ctrl+C
+                elif [ "$input" = $'\x03' ]; then  # Ctrl+C: 退出程序
                     echo "退出程序..."
                     cleanup_on_exit
                     exit 0
-                    ;;
-            esac
-        fi
+                fi
+            fi
+            
+            # 检查是否收到了中断信号
+            if [ $termux_exit -eq 2 ]; then
+                echo "退出程序..."
+                cleanup_on_exit
+                exit 0
+            fi
+        done
+    else
+        # 非Termux环境，使用原来的按键捕获方式
+        # 设置trap捕获信号
+        trap 'echo "暂停..."; return 0' SIGQUIT  # Ctrl+\
+        trap 'echo "退出程序..."; cleanup_on_exit; exit 0' SIGINT  # Ctrl+C: 退出程序
         
-        # 执行智能扫描
-        smart_scan
-    done
+        # 循环监控
+        while true; do
+            # 检查是否有Ctrl+C或Ctrl+D
+            if read -t 1 -n 1; then
+                case "$REPLY" in
+                    $'\x04')  # Ctrl+D: 返回主菜单
+                        echo "暂停监控，返回主菜单..."
+                        stty sane
+                        return 0
+                        ;;
+                    $'\x03')  # Ctrl+C: 退出程序
+                        echo "退出程序..."
+                        cleanup_on_exit
+                        exit 0
+                        ;;
+                esac
+            fi
+            
+            # 执行智能扫描
+            smart_scan
+        done
+    fi
 }
 
 
