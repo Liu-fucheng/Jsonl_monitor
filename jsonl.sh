@@ -4922,7 +4922,7 @@ main_menu() {
         clear
         echo -e "\033[32m按Ctrl+C退出程序\033[0m"
         echo "作者：柳拂城"
-        echo "版本：1.3"
+        echo "版本：1.3.1"
         echo "首次使用请先输入2进入设置"
         echo "第一次写脚本，如遇bug请在GitHub上反馈( *ˊᵕˋ)✩︎‧₊"
         echo "GitHub链接：https://github.com/Liu-fucheng/Jsonl_monitor"
@@ -5099,7 +5099,7 @@ update_script() {
     press_any_key
 }
 
-# 启动监控（修改为支持Termux按键处理）
+# 启动监控
 start_monitoring() {
     clear
     # 执行初始扫描（只记录信息，不处理变化）
@@ -5108,68 +5108,29 @@ start_monitoring() {
     echo "保存行数记录到日志文件... (共 ${#line_counts[@]} 条记录)"
     
     echo "开始监控JSONL文件变化..."
-    echo -e "\033[32m按Ctrl+D返回主菜单，按Ctrl+C退出程序\033[0m"
+    echo -e "\033[32m按Ctrl+C退出程序\033[0m"
     
-    # 检测是否在Termux环境下
-    if [ -n "$TERMUX_VERSION" ] || [ -d "/data/data/com.termux" ]; then
-        echo "检测到Termux环境，使用特殊按键处理..."
-        local termux_exit=0
-        
-        # 设置trap捕获信号
-        trap 'termux_exit=2' SIGINT  # Ctrl+C: 退出程序
-        
-        # 循环监控
-        while [ $termux_exit -eq 0 ]; do
-            # 执行智能扫描
-            smart_scan
-            
-            # 检查是否有按键输入
-            if read -t 1 -n 1 input; then
-                if [ "$input" = $'\x04' ]; then  # Ctrl+D: 返回主菜单
-                    echo "暂停监控，返回主菜单..."
-                    stty sane
-                    return 0
-                elif [ "$input" = $'\x03' ]; then  # Ctrl+C: 退出程序
-                    echo "退出程序..."
-                    cleanup_on_exit
-                    exit 0
-                fi
-            fi
-            
-            # 检查是否收到了中断信号
-            if [ $termux_exit -eq 2 ]; then
-                echo "退出程序..."
-                cleanup_on_exit
-                exit 0
-            fi
-        done
-    else
-        # 非Termux环境，使用原来的按键捕获方式
-        # 设置trap捕获信号
-        trap 'echo "暂停..."; return 0' SIGQUIT  # Ctrl+\
-        trap 'echo "退出程序..."; cleanup_on_exit; exit 0' SIGINT  # Ctrl+C: 退出程序
-        
-        # 循环监控
-        while true; do
-            # 检查是否有Ctrl+C或Ctrl+D
-            if read -t 1 -n 1; then
-                case "$REPLY" in
-                    $'\x04')  # Ctrl+D: 返回主菜单
-                        echo "暂停监控，返回主菜单..."
-                        stty sane
-                        return 0
-                        ;;
-                    $'\x03')  # Ctrl+C: 退出程序
-                        echo "退出程序..."
-                        cleanup_on_exit
-                        exit 0
-                        ;;
-                esac
-            fi
-            
-            # 执行智能扫描
-            smart_scan
-        done
+    # 设置trap捕获信号
+    trap 'echo "退出程序..."; exit 0' SIGINT  # Ctrl+C
+    
+    # 循环监控
+    while true; do
+        # 执行智能扫描
+        smart_scan
+    done
+}
+
+# 清理函数 - 程序退出时执行
+cleanup_on_exit() {
+    save_line_counts
+    save_rules
+    # 确保恢复终端设置
+    stty sane
+    stty echo
+    stty icanon
+    # 只在正常退出时显示提示
+    if [ "$1" != "SIGINT" ]; then
+        echo "程序已退出"
     fi
 }
 
@@ -5216,19 +5177,6 @@ fix_rule_formats() {
     fi
 }
 
-# 清理函数 - 程序退出时执行
-cleanup_on_exit() {
-    save_line_counts
-    save_rules
-    # 确保恢复终端设置，尝试多种方式
-    stty sane
-    stty echo
-    stty icanon
-    reset -I >/dev/null 2>&1 || true  # 尝试重置终端，忽略错误
-    echo "程序已退出"
-    exit 0
-}
-
 # 设置清理钩子 - SIGINT、SIGTERM和SIGHUP都执行完整的清理
 trap cleanup_on_exit SIGTERM SIGINT SIGHUP EXIT
 
@@ -5237,9 +5185,9 @@ trap '' SIGINT
 
 # 主入口
 main() {
-    # 清除旧的SIGINT处理器并设置正确的处理器，确保只使用cleanup_on_exit
-    trap '' SIGINT
-    trap cleanup_on_exit SIGINT SIGTERM SIGHUP EXIT
+    # 设置信号处理
+    trap 'cleanup_on_exit SIGINT; exit 0' SIGINT
+    trap 'cleanup_on_exit; exit 0' SIGTERM SIGHUP EXIT|
     
     # 检查依赖
     check_dependencies
@@ -5262,49 +5210,3 @@ main() {
 
 # 执行主函数
 main
-
-# 获取不重复的xz压缩文件名
-get_xz_unique_filename() {
-    local base_name="$1"
-    local floor_number="$2"  # 楼层号
-    local content="$3"      # 文件内容（未压缩）
-    local dir_path="$(dirname "$base_name")"
-    
-    # 基础文件名
-    local base_file="${base_name}.xz"
-    
-    # 先检查是否存在同名同楼层的文件
-    if [ -f "$base_file" ]; then
-        # 存在同名文件，比对解压后的内容
-        local existing_content=$(xz -dc "$base_file" 2>/dev/null)
-        if [ "$existing_content" = "$content" ]; then
-            # 内容相同，直接返回现有文件名
-            echo "$base_file"
-            return
-        fi
-    fi
-    
-    # 内容不同或文件不存在，查找可用文件名
-    local output_file="$base_file"
-    local counter=1
-    
-    while [ -f "$output_file" ]; do
-        output_file="${base_name}(${counter}).xz"
-        # 如果存在已编号的文件，也比对内容
-        if [ -f "$output_file" ]; then
-            local existing_content=$(xz -dc "$output_file" 2>/dev/null)
-            if [ "$existing_content" = "$content" ]; then
-                # 内容相同，返回现有文件名
-                echo "$output_file"
-                return
-            fi
-        fi
-        counter=$((counter + 1))
-    done
-    
-    # 记录此楼层已处理
-    local key="${dir_path}_${floor_number}"
-    processed_floors["$key"]="$output_file"
-    
-    echo "$output_file"
-}
