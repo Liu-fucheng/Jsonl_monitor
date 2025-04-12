@@ -5357,7 +5357,8 @@ main_menu() {
         clear
         echo -e "\033[32m按Ctrl+C退出程序\033[0m"
         echo "作者：柳拂城"
-        echo "当前版本：$VERSION"
+        echo "当前版本：$VERSION（2.0后更新会减少）"
+        echo "目前还在频繁修bug阶段，更新会比较多，更新提示是一天检测一次，可能不及时，大家有空多点点更新"
         echo "首次使用请先输入2进入设置（记得看GitHub上的Readme）"
         echo "第一次写脚本，如遇bug请在GitHub上反馈( *ˊᵕˋ)✩︎‧₊"
         echo "GitHub链接：https://github.com/Liu-fucheng/Jsonl_monitor"
@@ -5529,7 +5530,7 @@ display_update_notification() {
     local latest_version="$1"
     local current_version="$2"
     
-    clear
+    echo ""
     echo "============================================="
     echo "              新版本可用!"
     echo "============================================="
@@ -5538,8 +5539,8 @@ display_update_notification() {
     echo ""
     echo "您可以通过主菜单中的'更新'选项进行更新。"
     echo "============================================="
-    echo "按任意键继续..."
-    read -n 1 -s
+    echo ""
+    # 不要等待用户按键，直接继续
 }
 
 # 更新脚本
