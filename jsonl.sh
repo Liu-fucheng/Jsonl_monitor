@@ -26,6 +26,7 @@ SAVE_MODE="interval" # "interval" 或 "latest"
 ROLLBACK_MODE=1 # 1: 删除重写仅保留最新档, 2: 保留旧档并标记
 SORT_METHOD="name" # "name" 或 "time"
 SORT_ORDER="asc" # "asc" 或 "desc"
+INITIAL_SCAN_ARCHIVE=0 # 0: 初始扫描不生成存档, 1: 初始扫描生成存档
 
 # 确保目录存在
 mkdir -p "$SOURCE_DIR"
@@ -70,6 +71,7 @@ load_config() {
         echo "SORT_METHOD=$SORT_METHOD" >> "$CONFIG_FILE"
         echo "SORT_ORDER=$SORT_ORDER" >> "$CONFIG_FILE"
         echo "USERNAME=$USERNAME" >> "$CONFIG_FILE"
+        echo "INITIAL_SCAN_ARCHIVE=$INITIAL_SCAN_ARCHIVE" >> "$CONFIG_FILE"
     fi
 }
 
@@ -81,6 +83,7 @@ save_config() {
     echo "SORT_METHOD=$SORT_METHOD" >> "$CONFIG_FILE"
     echo "SORT_ORDER=$SORT_ORDER" >> "$CONFIG_FILE"
     echo "USERNAME=$USERNAME" >> "$CONFIG_FILE"
+    echo "INITIAL_SCAN_ARCHIVE=$INITIAL_SCAN_ARCHIVE" >> "$CONFIG_FILE"
 }
 
 # 加载规则 - 使用简单的文本格式
@@ -1054,6 +1057,12 @@ compare_log_with_archives() {
             latest_floor=$archive_floor
         fi
     done
+    
+    # 如果是初始扫描且没有找到任何存档，且设置为不生成存档，跳过处理
+    if [ "$INITIAL_SCAN" -eq 1 ] && [ "$latest_floor" -eq 0 ] && [ "$INITIAL_SCAN_ARCHIVE" -eq 0 ]; then
+        echo "初始扫描，无本地存档，且设置为不生成存档，跳过 $file 的存档生成"
+        return
+    fi
     
     # 如果日志楼层与存档修改日期最新楼层不一致，进行处理
     if [ "$latest_floor" -ne "$log_floor" ]; then
@@ -3624,7 +3633,8 @@ settings_menu() {
         echo -e "2. 回退处理 (当前机制为: $([ "$ROLLBACK_MODE" -eq 1 ] && echo "删除重写仅保留最新档" || echo "删除重写保留每个档"))"
         echo "3. 自定义规则"
         echo -e "4. 修改用户名 (当前用户名: \033[33m${USERNAME}\033[0m)"
-        echo "5. 返回主菜单"
+        echo -e "5. 初始扫描设置 (当前设置: $([ "$INITIAL_SCAN_ARCHIVE" -eq 1 ] && echo "比对存档" || echo "不比对存档"))"
+        echo "6. 返回主菜单"
         echo -n "选择: "
         choice=$(get_single_key)
         echo "$choice"
@@ -3643,6 +3653,9 @@ settings_menu() {
                 change_username
                 ;;
             5)
+                initial_scan_menu
+                ;;
+            6)
                 return
                 ;;
             *)
@@ -3651,6 +3664,36 @@ settings_menu() {
                 ;;
         esac
     done
+}
+
+# 初始扫描设置菜单
+initial_scan_menu() {
+    clear
+    echo "===== 初始扫描设置 ====="
+    echo "当初次扫描聊天记录时，如何处理："
+    echo "1. 仅记录不比对存档 (推荐)"
+    echo "2. 记录并比对存档（耗时较长）"
+    echo -n "请选择 [1/2]: "
+    choice=$(get_single_key)
+    echo "$choice"
+    
+    case "$choice" in
+        1)
+            INITIAL_SCAN_ARCHIVE=0
+            echo "已设置为初始扫描不生成存档"
+            ;;
+        2)
+            INITIAL_SCAN_ARCHIVE=1
+            echo "已设置为初始扫描生成存档"
+            ;;
+        *)
+            echo "无效选择，未做更改"
+            ;;
+    esac
+    
+    # 保存配置
+    save_config
+    press_any_key
 }
 
 # 修改用户名函数
