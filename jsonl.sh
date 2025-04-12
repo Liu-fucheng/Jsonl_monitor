@@ -695,7 +695,7 @@ process_changes() {
             echo "使用回退模式1: 删除重写仅保留最新档"
             
             # 查找并删除之前的所有楼层文件（包括_old标记的文件）
-            for old_file in "$target_dir"/*楼*.jsonl; do
+            for old_file in "$target_dir"/*楼*.jsonl "$target_dir"/*楼*.xz; do
                 [ -f "$old_file" ] || continue
                 rm "$old_file"
                 echo "删除之前的楼层文件: $old_file"
@@ -709,7 +709,7 @@ process_changes() {
             local max_floor=0
             local max_file=""
             
-            for old_file in "$target_dir"/*楼*.jsonl; do
+            for old_file in "$target_dir"/*楼*.jsonl "$target_dir"/*楼*.xz; do
                 [ -f "$old_file" ] || continue
                 
                 # 已经有_old标记的文件跳过
@@ -725,16 +725,54 @@ process_changes() {
                     max_file="$old_file"
                 fi
             done
-            
-            # 重命名最新的楼层文件
-            if [ -n "$max_file" ]; then
-                local old_basename=$(basename "$max_file" .jsonl)
-                local new_name="${target_dir}/${old_basename}_old"
-                
+
+# 模式2: 保留旧档并标记
+echo "使用回退模式2: 保留旧档并标记"
+
+# 找到最新的楼层文件并标记为_old
+local max_floor=0
+local max_file=""
+
+# 修改：同时检查 jsonl 和 xz 文件
+for old_file in "$target_dir"/*楼*.jsonl "$target_dir"/*楼*.xz; do
+    [ -f "$old_file" ] || continue
+    
+    # 已经有_old标记的文件跳过
+    if [[ "$old_file" == *"_old"* ]]; then
+        continue
+    fi
+    
+    # 提取楼层数
+    old_floor=$(echo "$old_file" | grep -o '[0-9]\+楼' | grep -o '[0-9]\+')
+    
+    if [ -n "$old_floor" ] && [ "$old_floor" -gt "$max_floor" ]; then
+        max_floor=$old_floor
+        max_file="$old_file"
+    fi
+done
+
+# 重命名最新的楼层文件
+if [ -n "$max_file" ]; then
+    # 确定文件扩展名和基础名
+    local file_ext=""
+    if [[ "$max_file" == *.jsonl ]]; then
+        file_ext="jsonl"
+    elif [[ "$max_file" == *.xz ]]; then
+        file_ext="xz"
+    fi
+    
+    local old_basename=$(basename "$max_file" .$file_ext)
+    local new_name="${target_dir}/${old_basename}_old"
+    
                 # 获取文件内容用于比对
-                local content=$(cat "$max_file")
+                local content=""
+                if [[ "$file_ext" == "jsonl" ]]; then
+                    content=$(cat "$max_file")
+                else
+                    content=$(xz -dc "$max_file" 2>/dev/null)
+                fi
                 
-                local new_file=$(get_unique_filename "$new_name" "jsonl" "${old_basename}_old" "$content")
+                local new_file=$(get_unique_filename "$new_name" "$file_ext" "${old_basename}_old" "$content")
                 
                 # 如果返回的文件名存在且内容相同，说明已存在相同内容
                 if [ "$new_file" != "$max_file" ] && [ -f "$new_file" ]; then
@@ -851,12 +889,17 @@ process_changes() {
         
         # 如果不是回退，且之前记录了最新的文件，且该文件不是应该保留的楼层，则删除它
         if [ "$is_rollback" -eq 0 ] && [ -n "$previous_latest_file" ] && [ -f "$previous_latest_file" ]; then
-            # 提取楼层数
-            local prev_floor=$(echo "$previous_latest_file" | grep -o '[0-9]\+楼' | grep -o '[0-9]\+')
-            
-            if [ -n "$prev_floor" ] && ! should_save_floor "$prev_floor" "$floor" "$target_dir"; then
-                rm "$previous_latest_file"
-                echo "删除前一个最新文件: $previous_latest_file"
+            # 检查文件是否带有_old标记，如果有则跳过删除
+            if [[ "$previous_latest_file" == *"_old"* ]]; then
+                echo "保留带有_old标记的文件: $previous_latest_file"
+            else
+                # 提取楼层数
+                local prev_floor=$(echo "$previous_latest_file" | grep -o '[0-9]\+楼' | grep -o '[0-9]\+')
+                
+                if [ -n "$prev_floor" ] && ! should_save_floor "$prev_floor" "$floor" "$target_dir"; then
+                    rm "$previous_latest_file"
+                    echo "删除前一个最新文件: $previous_latest_file"
+                fi
             fi
         fi
     fi
@@ -900,6 +943,9 @@ initial_scan() {
         line_counts["$file"]=$count
         # 记录文件修改时间
         mod_times["$file"]=$(stat -c %Y "$file" 2>/dev/null || stat -f %m "$file" 2>/dev/null)
+        
+        # 比对日志与存档文件夹的最新楼层
+        compare_log_with_archives "$file" "$count"
     done
     
     # 保存记录
@@ -909,6 +955,280 @@ initial_scan() {
     INITIAL_SCAN=0
     
     echo "初始扫描完成，记录了 ${#line_counts[@]} 个文件"
+}
+
+# 比对日志楼层与存档文件夹最新楼层
+compare_log_with_archives() {
+    local file="$1"
+    local log_floor="$2"  # 日志中记录的楼层数
+    
+    # 获取相对路径和文件名
+    local rel_path="${file#$SOURCE_DIR/}"
+    local dir_name=$(dirname "$rel_path")
+    local file_name=$(basename "$rel_path" .jsonl)
+    
+    # 目标目录
+    local target_dir="$SAVE_BASE_DIR/$dir_name/$file_name"
+    mkdir -p "$target_dir"
+    
+    # 找到存档文件夹中的最新楼层
+    local max_floor=0
+    local max_file=""
+    
+    # 检查jsonl和xz文件
+    for archive_file in "$target_dir"/*楼*.jsonl "$target_dir"/*楼*.xz; do
+        [ -f "$archive_file" ] || continue
+        
+        # 排除带有_old标记的文件
+        if [[ "$archive_file" == *"_old"* ]]; then
+            continue
+        fi
+        
+        # 提取楼层数
+        local archive_floor=$(echo "$archive_file" | grep -o '[0-9]\+楼' | grep -o '[0-9]\+')
+        
+        if [ -n "$archive_floor" ] && [ "$archive_floor" -gt "$max_floor" ]; then
+            max_floor=$archive_floor
+            max_file="$archive_file"
+        fi
+    done
+    
+    # 如果日志楼层与存档最新楼层不一致，进行处理
+    if [ "$max_floor" -ne "$log_floor" ]; then
+        echo "检测到楼层不匹配: $file"
+        echo "  - 日志楼层: $log_floor"
+        echo "  - 存档最新楼层: $max_floor"
+        
+        # 情况1: 日志楼层高于存档最新楼层
+        if [ "$log_floor" -gt "$max_floor" ]; then
+            echo "日志楼层高于存档最新楼层，执行普通新生成"
+            # 获取当前文件内容
+            local content=$(cat "$file")
+            
+            # 保存文件
+            if should_save_floor "$log_floor" "$log_floor" "$target_dir"; then
+                local base_save_name="${target_dir}/${log_floor}楼"
+                
+                # 如果支持xz压缩
+                if command -v xz &> /dev/null; then
+                    local save_file=$(get_xz_unique_filename "$base_save_name" "$log_floor" "$content")
+                    
+                    if [ ! -f "$save_file" ]; then
+                        echo "$content" | xz -c > "$save_file"
+                        echo "已保存日志楼层文件: $save_file"
+                    fi
+                else
+                    local save_file=$(get_unique_filename "$base_save_name" "jsonl" "$log_floor" "$content")
+                    
+                    if [ ! -f "$save_file" ]; then
+                        echo "$content" > "$save_file"
+                        echo "已保存日志楼层文件: $save_file"
+                    fi
+                fi
+                
+                # 判断存档文件夹楼层是否符合保留规则
+                if ! should_save_floor "$max_floor" "$log_floor" "$target_dir"; then
+                    # 删除不符合保留规则的存档文件
+                    for old_file in "$target_dir/${max_floor}楼"*.jsonl "$target_dir/${max_floor}楼"*.xz; do
+                        [ -f "$old_file" ] || continue
+                        if [[ "$old_file" != *"_old"* ]]; then
+                            rm "$old_file"
+                            echo "删除不符合保留规则的存档文件: $old_file"
+                        fi
+                    done
+                else
+                    echo "存档文件夹楼层符合保留规则，保留文件"
+                fi
+            fi
+        # 情况2: 存档最新楼层高于日志楼层，且日志楼层非0
+        elif [ "$max_floor" -gt "$log_floor" ] && [ "$log_floor" -ne 0 ]; then
+            echo "存档最新楼层高于日志楼层，可能发生过回退"
+            
+            # 询问是否保留存档文件夹最新楼层
+            echo "是否保留存档文件夹最新楼层 $max_floor？ (y/n)"
+            read -n 1 keep_max_floor
+            echo ""
+            
+            if [[ "$keep_max_floor" =~ ^[Yy]$ ]]; then
+                # 将最新楼层文件标记为_old
+                if [ -n "$max_file" ]; then
+                    # 确定文件扩展名
+                    local file_ext=""
+                    if [[ "$max_file" == *.jsonl ]]; then
+                        file_ext="jsonl"
+                    elif [[ "$max_file" == *.xz ]]; then
+                        file_ext="xz"
+                    fi
+                    
+                    local old_basename=$(basename "$max_file" .$file_ext)
+                    local new_name="${target_dir}/${old_basename}_old"
+                    
+                    # 获取文件内容用于比对
+                    local content=""
+                    if [[ "$file_ext" == "jsonl" ]]; then
+                        content=$(cat "$max_file")
+                    else
+                        content=$(xz -dc "$max_file" 2>/dev/null)
+                    fi
+                    
+                    local new_file=$(get_unique_filename "$new_name" "$file_ext" "${old_basename}_old" "$content")
+                    
+                    # 如果返回的文件名存在且内容相同，说明已存在相同内容
+                    if [ "$new_file" != "$max_file" ] && [ -f "$new_file" ]; then
+                        # 文件已存在且内容相同，删除旧文件
+                        rm "$max_file"
+                        echo "删除重复文件: $max_file (内容已存在于 $new_file)"
+                    else
+                        # 文件不存在或内容不同，重命名
+                        mv "$max_file" "$new_file"
+                        echo "将存档最新楼层标记为: $new_file"
+                    fi
+                fi
+                
+                # 生成日志楼层
+                local content=$(cat "$file")
+                
+                if should_save_floor "$log_floor" "$log_floor" "$target_dir"; then
+                    local base_save_name="${target_dir}/${log_floor}楼"
+                    
+                    # 如果支持xz压缩
+                    if command -v xz &> /dev/null; then
+                        local save_file=$(get_xz_unique_filename "$base_save_name" "$log_floor" "$content")
+                        
+                        if [ ! -f "$save_file" ]; then
+                            echo "$content" | xz -c > "$save_file"
+                            echo "已保存日志楼层文件: $save_file"
+                        fi
+                    else
+                        local save_file=$(get_unique_filename "$base_save_name" "jsonl" "$log_floor" "$content")
+                        
+                        if [ ! -f "$save_file" ]; then
+                            echo "$content" > "$save_file"
+                            echo "已保存日志楼层文件: $save_file"
+                        fi
+                    fi
+                fi
+            else
+                # 不保留，执行普通新生成，删除旧的楼层文件
+                for old_file in "$target_dir/${max_floor}楼"*.jsonl "$target_dir/${max_floor}楼"*.xz; do
+                    [ -f "$old_file" ] || continue
+                    if [[ "$old_file" != *"_old"* ]]; then
+                        rm "$old_file"
+                        echo "删除旧的楼层文件: $old_file"
+                    fi
+                done
+                
+                # 生成日志楼层
+                local content=$(cat "$file")
+                
+                if should_save_floor "$log_floor" "$log_floor" "$target_dir"; then
+                    local base_save_name="${target_dir}/${log_floor}楼"
+                    
+                    # 如果支持xz压缩
+                    if command -v xz &> /dev/null; then
+                        local save_file=$(get_xz_unique_filename "$base_save_name" "$log_floor" "$content")
+                        
+                        if [ ! -f "$save_file" ]; then
+                            echo "$content" | xz -c > "$save_file"
+                            echo "已保存日志楼层文件: $save_file"
+                        fi
+                    else
+                        local save_file=$(get_unique_filename "$base_save_name" "jsonl" "$log_floor" "$content")
+                        
+                        if [ ! -f "$save_file" ]; then
+                            echo "$content" > "$save_file"
+                            echo "已保存日志楼层文件: $save_file"
+                        fi
+                    fi
+                    
+                    # 检查是否因符合保留规则而保留
+                    if should_save_floor "$log_floor" "$log_floor" "$target_dir"; then
+                        echo "提示: 因符合保留规则，文件 $save_file 被保留"
+                    fi
+                fi
+            fi
+        # 情况3: 日志楼层为0，可能是新导入的聊天记录
+        elif [ "$log_floor" -eq 0 ] && [ "$max_floor" -gt 0 ]; then
+            echo "日志楼层为0，存档文件夹有内容，可能需要导入到酒馆"
+            
+            # 询问是否需要导入存档到酒馆
+            echo "是否需要导入存档到酒馆？ (y/n)"
+            read -n 1 import_to_tavern
+            echo ""
+            
+            if [[ "$import_to_tavern" =~ ^[Yy]$ ]]; then
+                # 询问导入的楼层类型
+                echo "导入哪种楼层？"
+                echo "1. 最新楼层 ($max_floor)"
+                echo "2. 最高楼层 (可能是其他备份)"
+                read -n 1 floor_choice
+                echo ""
+                
+                local import_floor=$max_floor
+                
+                if [ "$floor_choice" == "2" ]; then
+                    # 查找最高楼层文件
+                    local highest_floor=0
+                    local highest_file=""
+                    
+                    # 包括带有_old标记的文件
+                    for archive_file in "$target_dir"/*楼*.jsonl "$target_dir"/*楼*.xz; do
+                        [ -f "$archive_file" ] || continue
+                        
+                        # 提取楼层数
+                        local archive_floor=$(echo "$archive_file" | grep -o '[0-9]\+楼' | grep -o '[0-9]\+')
+                        
+                        if [ -n "$archive_floor" ] && [ "$archive_floor" -gt "$highest_floor" ]; then
+                            highest_floor=$archive_floor
+                            highest_file="$archive_file"
+                        fi
+                    done
+                    
+                    import_floor=$highest_floor
+                    max_file=$highest_file
+                fi
+                
+                # 询问是覆盖还是新建
+                echo "请选择导入方式："
+                echo "1. 覆盖现有文件"
+                echo "2. 创建新文件"
+                read -n 1 import_mode
+                echo ""
+                
+                # 获取要导入的文件内容
+                local import_content=""
+                if [[ "$max_file" == *.jsonl ]]; then
+                    import_content=$(cat "$max_file")
+                else
+                    import_content=$(xz -dc "$max_file" 2>/dev/null)
+                fi
+                
+                if [ "$import_mode" == "1" ]; then
+                    # 覆盖现有文件
+                    echo "$import_content" > "$file"
+                    line_counts["$file"]=$import_floor
+                    echo "已将楼层 $import_floor 的内容导入到酒馆，覆盖现有文件"
+                else
+                    # 创建新文件
+                    local new_file_base=$(dirname "$file")/$(basename "$file" .jsonl)
+                    local new_file="${new_file_base}_imported.jsonl"
+                    local counter=1
+                    
+                    # 确保文件名不重复
+                    while [ -f "$new_file" ]; do
+                        new_file="${new_file_base}_imported_${counter}.jsonl"
+                        ((counter++))
+                    done
+                    
+                    echo "$import_content" > "$new_file"
+                    line_counts["$new_file"]=$import_floor
+                    echo "已将楼层 $import_floor 的内容导入到酒馆，创建新文件: $new_file"
+                fi
+            fi
+        fi
+    else
+        echo "日志楼层与存档最新楼层一致: $log_floor"
+    fi
 }
 
 # 智能扫描 - 只扫描最近有变化的文件和新文件
@@ -4968,7 +5288,7 @@ main_menu() {
         clear
         echo -e "\033[32m按Ctrl+C退出程序\033[0m"
         echo "作者：柳拂城"
-        echo "版本：1.3.2"
+        echo "版本：1.3.3"
         echo "首次使用请先输入2进入设置（记得看GitHub上的Readme）"
         echo "第一次写脚本，如遇bug请在GitHub上反馈( *ˊᵕˋ)✩︎‧₊"
         echo "GitHub链接：https://github.com/Liu-fucheng/Jsonl_monitor"
