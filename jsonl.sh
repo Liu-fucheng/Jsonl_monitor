@@ -3,8 +3,10 @@
 # 使用相对路径
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 SILLY_TAVERN_DIR="${SCRIPT_DIR}/SillyTavern"
-SOURCE_DIR="${SILLY_TAVERN_DIR}/data/default-user/chats"
-SAVE_BASE_DIR="${SCRIPT_DIR}/saved-date/default-user/chats"
+# 用户名默认设置
+USERNAME="default-user"
+SOURCE_DIR="${SILLY_TAVERN_DIR}/data/${USERNAME}/chats"
+SAVE_BASE_DIR="${SCRIPT_DIR}/saved-date/${USERNAME}/chats"
 LOG_DIR="${SCRIPT_DIR}/saved-date"
 LOG_FILE="${LOG_DIR}/line_counts.log"
 CONFIG_FILE="${LOG_DIR}/config.conf"
@@ -53,6 +55,9 @@ check_dependencies() {
 load_config() {
     if [ -f "$CONFIG_FILE" ]; then
         source "$CONFIG_FILE"
+        # 更新路径以使用新加载的USERNAME
+        SOURCE_DIR="${SILLY_TAVERN_DIR}/data/${USERNAME}/chats"
+        SAVE_BASE_DIR="${SCRIPT_DIR}/saved-date/${USERNAME}/chats"
     else
         # 创建默认配置
         echo "SAVE_INTERVAL=$SAVE_INTERVAL" > "$CONFIG_FILE"
@@ -60,6 +65,7 @@ load_config() {
         echo "ROLLBACK_MODE=$ROLLBACK_MODE" >> "$CONFIG_FILE"
         echo "SORT_METHOD=$SORT_METHOD" >> "$CONFIG_FILE"
         echo "SORT_ORDER=$SORT_ORDER" >> "$CONFIG_FILE"
+        echo "USERNAME=$USERNAME" >> "$CONFIG_FILE"
     fi
 }
 
@@ -70,6 +76,7 @@ save_config() {
     echo "ROLLBACK_MODE=$ROLLBACK_MODE" >> "$CONFIG_FILE"
     echo "SORT_METHOD=$SORT_METHOD" >> "$CONFIG_FILE"
     echo "SORT_ORDER=$SORT_ORDER" >> "$CONFIG_FILE"
+    echo "USERNAME=$USERNAME" >> "$CONFIG_FILE"
 }
 
 # 加载规则 - 使用简单的文本格式
@@ -1226,8 +1233,6 @@ compare_log_with_archives() {
                 fi
             fi
         fi
-    else
-        echo "日志楼层与存档最新楼层一致: $log_floor"
     fi
 }
 
@@ -3536,7 +3541,8 @@ settings_menu() {
         echo -e "1. 保留机制选择 (当前机制为: $([ "$SAVE_MODE" = "interval" ] && echo "保留\033[33m${SAVE_INTERVAL}\033[0m的倍数和最新楼层" || echo "仅保留最新楼层"))"
         echo -e "2. 回退处理 (当前机制为: $([ "$ROLLBACK_MODE" -eq 1 ] && echo "删除重写仅保留最新档" || echo "删除重写保留每个档"))"
         echo "3. 自定义规则"
-        echo "4. 返回主菜单"
+        echo -e "4. 修改用户名 (当前用户名: \033[33m${USERNAME}\033[0m)"
+        echo "5. 返回主菜单"
         echo -n "选择: "
         choice=$(get_single_key)
         echo "$choice"
@@ -3552,6 +3558,9 @@ settings_menu() {
                 rules_menu
                 ;;
             4)
+                change_username
+                ;;
+            5)
                 return
                 ;;
             *)
@@ -3560,6 +3569,63 @@ settings_menu() {
                 ;;
         esac
     done
+}
+
+# 修改用户名函数
+change_username() {
+    clear
+    echo "===== 修改用户名 ====="
+    echo "当前用户名: $USERNAME"
+    echo "提示：如果您不理解此设置的作用，请不要修改。"
+    echo "      此设置用于适配不同的SillyTavern用户目录。"
+    echo "      修改此设置会改变脚本读取和保存文件的路径。"
+    echo ""
+    echo "请输入新的用户名 (直接回车取消): "
+    read -r new_username
+    
+    # 如果用户直接回车，取消操作
+    if [ -z "$new_username" ]; then
+        echo "操作已取消"
+        press_any_key
+        return
+    fi
+    
+    # 确认修改
+    echo ""
+    echo "您确定要将用户名从 \"$USERNAME\" 改为 \"$new_username\" 吗？"
+    echo "这将改变文件的读取和保存路径。"
+    echo -n "确认修改? (y/n): "
+    read -r confirm
+    
+    if [[ "$confirm" =~ ^[Yy]$ ]]; then
+        # 保存旧路径
+        local old_source_dir="$SOURCE_DIR"
+        local old_save_dir="$SAVE_BASE_DIR"
+        
+        # 更新用户名
+        USERNAME="$new_username"
+        
+        # 更新路径
+        SOURCE_DIR="${SILLY_TAVERN_DIR}/data/${USERNAME}/chats"
+        SAVE_BASE_DIR="${SCRIPT_DIR}/saved-date/${USERNAME}/chats"
+        
+        # 确保目录存在
+        mkdir -p "$SOURCE_DIR"
+        mkdir -p "$SAVE_BASE_DIR"
+        
+        # 保存配置
+        save_config
+        
+        echo "用户名已更新为: $USERNAME"
+        echo "新的聊天记录路径: $SOURCE_DIR"
+        echo "新的存档路径: $SAVE_BASE_DIR"
+        echo ""
+        echo "需要重新加载才能使更改生效。"
+        press_any_key
+    else
+        echo "操作已取消"
+        press_any_key
+    fi
 }
 
 # 清除冗余存档界面 - 修改版支持多选
@@ -5288,7 +5354,7 @@ main_menu() {
         clear
         echo -e "\033[32m按Ctrl+C退出程序\033[0m"
         echo "作者：柳拂城"
-        echo "版本：1.3.3"
+        echo "当前版本：1.3.3"
         echo "首次使用请先输入2进入设置（记得看GitHub上的Readme）"
         echo "第一次写脚本，如遇bug请在GitHub上反馈( *ˊᵕˋ)✩︎‧₊"
         echo "GitHub链接：https://github.com/Liu-fucheng/Jsonl_monitor"
@@ -5343,6 +5409,126 @@ main_menu() {
     done
 }
 
+# 检查脚本是否有新版本
+check_for_updates() {
+    # 当前版本
+    local CURRENT_VERSION="1.3.3"
+    # 版本信息文件
+    local VERSION_CHECK_FILE="$LOG_DIR/version_check.txt"
+    # 检查间隔（1天，以秒为单位）
+    local CHECK_INTERVAL=$((1 * 24 * 60 * 60))
+    
+    # 如果版本检查文件不存在，创建一个
+    if [ ! -f "$VERSION_CHECK_FILE" ]; then
+        echo "last_check=0" > "$VERSION_CHECK_FILE"
+        echo "latest_version=$CURRENT_VERSION" >> "$VERSION_CHECK_FILE"
+        echo "has_notified=0" >> "$VERSION_CHECK_FILE"
+    fi
+    
+    # 读取上次检查时间
+    local last_check=$(grep "last_check=" "$VERSION_CHECK_FILE" | cut -d= -f2)
+    local latest_version=$(grep "latest_version=" "$VERSION_CHECK_FILE" | cut -d= -f2)
+    local has_notified=$(grep "has_notified=" "$VERSION_CHECK_FILE" | cut -d= -f2)
+    
+    # 获取当前时间
+    local current_time=$(date +%s)
+    
+    # 检查是否需要更新版本信息
+    if [ $((current_time - last_check)) -gt $CHECK_INTERVAL ]; then
+        # 如果已经过了检查间隔，尝试更新版本信息
+        update_version_info "$VERSION_CHECK_FILE" "$CURRENT_VERSION" "$latest_version" "$has_notified"
+    else
+        # 如果未通知且有新版本，显示通知
+        if [ "$has_notified" -eq 0 ] && [ "$latest_version" != "$CURRENT_VERSION" ]; then
+            display_update_notification "$latest_version" "$CURRENT_VERSION"
+            # 标记为已通知
+            sed -i "s/has_notified=0/has_notified=1/g" "$VERSION_CHECK_FILE" 2>/dev/null || \
+            sed "s/has_notified=0/has_notified=1/g" "$VERSION_CHECK_FILE" > "$VERSION_CHECK_FILE.tmp" && \
+            mv "$VERSION_CHECK_FILE.tmp" "$VERSION_CHECK_FILE"
+        fi
+    fi
+}
+
+# 更新版本信息
+update_version_info() {
+    local VERSION_CHECK_FILE="$1"
+    local CURRENT_VERSION="$2"
+    local previous_latest_version="$3"
+    local has_notified="$4"
+    
+    # 获取当前时间
+    local current_time=$(date +%s)
+    
+    # 尝试在后台检查GitHub上的最新版本
+    (
+        # 设置临时检查目录
+        local TEMP_CHECK_DIR="$LOG_DIR/temp_version_check"
+        mkdir -p "$TEMP_CHECK_DIR"
+        cd "$TEMP_CHECK_DIR" || return
+        
+        # 检测IP地理位置，决定是否使用代理
+        local country_code
+        country_code=$(curl -s --connect-timeout 5 ipinfo.io/country)
+        local download_url="https://github.com/Liu-fucheng/Jsonl_monitor.git"
+        
+        # 中国大陆用户使用代理
+        if [ "$country_code" = "CN" ]; then
+            download_url="https://ghproxy.com/https://github.com/Liu-fucheng/Jsonl_monitor.git"
+        fi
+        
+        # 使用git clone --depth=1只获取最新版本的信息
+        git clone --depth=1 "$download_url" . > /dev/null 2>&1
+        
+        if [ $? -eq 0 ]; then
+            # 从脚本中提取版本号
+            local remote_version=$(grep -o "版本：[0-9.]*" jsonl.sh | cut -d'：' -f2)
+            
+            if [ -n "$remote_version" ]; then
+                # 更新版本检查文件
+                echo "last_check=$current_time" > "$VERSION_CHECK_FILE"
+                echo "latest_version=$remote_version" >> "$VERSION_CHECK_FILE"
+                
+                # 如果存在新版本且尚未通知，设置has_notified=0
+                if [ "$remote_version" != "$CURRENT_VERSION" ]; then
+                    echo "has_notified=0" >> "$VERSION_CHECK_FILE"
+                else
+                    echo "has_notified=1" >> "$VERSION_CHECK_FILE"
+                fi
+            fi
+        else
+            # 检查失败时，使用之前的信息，但更新检查时间
+            echo "last_check=$current_time" > "$VERSION_CHECK_FILE"
+            echo "latest_version=$previous_latest_version" >> "$VERSION_CHECK_FILE"
+            echo "has_notified=$has_notified" >> "$VERSION_CHECK_FILE"
+        fi
+        
+        # 清理临时目录
+        cd "$LOG_DIR" || return
+        rm -rf "$TEMP_CHECK_DIR"
+    ) &
+    
+    # 不等待后台检查完成
+}
+
+# 显示更新通知
+display_update_notification() {
+    local latest_version="$1"
+    local current_version="$2"
+    
+    clear
+    echo "============================================="
+    echo "              新版本可用!"
+    echo "============================================="
+    echo "当前版本: $current_version"
+    echo "最新版本: $latest_version"
+    echo ""
+    echo "您可以通过主菜单中的'更新'选项进行更新。"
+    echo "============================================="
+    echo "按任意键继续..."
+    read -n 1 -s
+}
+
+# 更新脚本
 update_script() {
     clear
     echo "正在检查更新..."
@@ -5569,6 +5755,9 @@ main() {
     
     # 从日志文件加载之前的行数记录
     load_line_counts
+    
+    # 检查是否有新版本
+    check_for_updates
     
     # 主菜单
     main_menu
