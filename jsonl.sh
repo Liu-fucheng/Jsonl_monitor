@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 脚本版本
-VERSION="1.3.3"
+VERSION="1.3.4"
 
 # 使用相对路径
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
