@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# 脚本版本
+VERSION="1.3.3"
+
 # 使用相对路径
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 SILLY_TAVERN_DIR="${SCRIPT_DIR}/SillyTavern"
@@ -5354,7 +5357,7 @@ main_menu() {
         clear
         echo -e "\033[32m按Ctrl+C退出程序\033[0m"
         echo "作者：柳拂城"
-        echo "当前版本：1.3.4"
+        echo "当前版本：$VERSION"
         echo "首次使用请先输入2进入设置（记得看GitHub上的Readme）"
         echo "第一次写脚本，如遇bug请在GitHub上反馈( *ˊᵕˋ)✩︎‧₊"
         echo "GitHub链接：https://github.com/Liu-fucheng/Jsonl_monitor"
@@ -5412,7 +5415,7 @@ main_menu() {
 # 检查脚本是否有新版本
 check_for_updates() {
     # 当前版本
-    local CURRENT_VERSION="1.3.4"
+    local CURRENT_VERSION="$VERSION"
     # 版本信息文件
     local VERSION_CHECK_FILE="$LOG_DIR/version_check.txt"
     # 检查间隔（1天，以秒为单位）
@@ -5480,8 +5483,19 @@ update_version_info() {
         git clone --depth=1 "$download_url" . > /dev/null 2>&1
         
         if [ $? -eq 0 ]; then
-            # 从脚本中提取版本号
-            local remote_version=$(grep -o "版本：[0-9.]*" jsonl.sh | cut -d'：' -f2)
+            # 从脚本中提取版本号 - 同时支持"版本："和"当前版本："两种格式
+            local remote_version
+            remote_version=$(grep -o "当前版本：[0-9.]*" jsonl.sh | cut -d'：' -f2 2>/dev/null)
+            
+            # 如果找不到"当前版本："格式，尝试旧格式"版本："
+            if [ -z "$remote_version" ]; then
+                remote_version=$(grep -o "版本：[0-9.]*" jsonl.sh | cut -d'：' -f2 2>/dev/null)
+            fi
+            
+            # 如果还是找不到，尝试简单地查找版本格式 x.y.z
+            if [ -z "$remote_version" ]; then
+                remote_version=$(grep -o "VERSION=\"[0-9.]*\"" jsonl.sh | grep -o "[0-9.]*" 2>/dev/null)
+            fi
             
             if [ -n "$remote_version" ]; then
                 # 更新版本检查文件
