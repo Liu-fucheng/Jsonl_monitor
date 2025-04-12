@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 脚本版本
-VERSION="1.3.5"
+VERSION="1.3.6"
 
 # 使用相对路径
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
@@ -197,7 +197,7 @@ add_rollback_log_entry() {
     local rollback_log="$chat_dir/rollback_log.txt"
     
     # 添加日志条目 (仅追加，不修改或删除)
-    echo "[$timestamp] 回退记录: 从 ${prev_floor}楼 回退到 ${new_floor}楼" >> "$rollback_log"
+    echo "[$timestamp] 回退记录: 从 ${new_floor}楼 回退到 ${prev_floor}楼" >> "$rollback_log"
     echo "已记录回退事件到日志: $rollback_log"
 }
 
