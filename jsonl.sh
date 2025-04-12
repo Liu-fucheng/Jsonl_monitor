@@ -1005,7 +1005,7 @@ initial_scan() {
     echo "初始扫描完成，记录了 ${#line_counts[@]} 个文件"
 }
 
-# 比对日志楼层与存档文件夹最新楼层
+# 比对日志楼层与存档文件夹修改日期最新楼层
 compare_log_with_archives() {
     local file="$1"
     local log_floor="$2"  # 日志中记录的楼层数
@@ -1019,7 +1019,12 @@ compare_log_with_archives() {
     local target_dir="$SAVE_BASE_DIR/$dir_name/$file_name"
     mkdir -p "$target_dir"
     
-    # 找到存档文件夹中的最新楼层
+    # 查找修改日期最新的文件和楼层
+    local latest_floor=0
+    local latest_file=""
+    local latest_mtime=0
+    
+    # 同时记录最高楼层信息（用于参考）
     local max_floor=0
     local max_file=""
     
@@ -1035,21 +1040,31 @@ compare_log_with_archives() {
         # 提取楼层数
         local archive_floor=$(echo "$archive_file" | grep -o '[0-9]\+楼' | grep -o '[0-9]\+')
         
+        # 记录楼层号最高的文件（仅用于参考）
         if [ -n "$archive_floor" ] && [ "$archive_floor" -gt "$max_floor" ]; then
             max_floor=$archive_floor
             max_file="$archive_file"
         fi
+        
+        # 查找修改日期最新的文件
+        local mtime=$(stat -c %Y "$archive_file" 2>/dev/null || stat -f %m "$archive_file" 2>/dev/null)
+        if [ "$mtime" -gt "$latest_mtime" ]; then
+            latest_mtime=$mtime
+            latest_file="$archive_file"
+            latest_floor=$archive_floor
+        fi
     done
     
-    # 如果日志楼层与存档最新楼层不一致，进行处理
-    if [ "$max_floor" -ne "$log_floor" ]; then
+    # 如果日志楼层与存档修改日期最新楼层不一致，进行处理
+    if [ "$latest_floor" -ne "$log_floor" ]; then
         echo "检测到楼层不匹配: $file"
         echo "  - 日志楼层: $log_floor"
-        echo "  - 存档最新楼层: $max_floor"
+        echo "  - 存档修改日期最新楼层: $latest_floor"
+        echo "  - 存档最高楼层: $max_floor (参考)"
         
-        # 情况1: 日志楼层高于存档最新楼层
-        if [ "$log_floor" -gt "$max_floor" ]; then
-            echo "日志楼层高于存档最新楼层，执行普通新生成"
+        # 情况1: 日志楼层高于存档修改日期最新楼层
+        if [ "$log_floor" -gt "$latest_floor" ]; then
+            echo "日志楼层高于存档修改日期最新楼层，执行普通新生成"
             # 获取当前文件内容
             local content=$(cat "$file")
             
@@ -1075,9 +1090,9 @@ compare_log_with_archives() {
                 fi
                 
                 # 判断存档文件夹楼层是否符合保留规则
-                if ! should_save_floor "$max_floor" "$log_floor" "$target_dir"; then
+                if ! should_save_floor "$latest_floor" "$log_floor" "$target_dir"; then
                     # 删除不符合保留规则的存档文件
-                    for old_file in "$target_dir/${max_floor}楼"*.jsonl "$target_dir/${max_floor}楼"*.xz; do
+                    for old_file in "$target_dir/${latest_floor}楼"*.jsonl "$target_dir/${latest_floor}楼"*.xz; do
                         [ -f "$old_file" ] || continue
                         if [[ "$old_file" != *"_old"* ]]; then
                             rm "$old_file"
@@ -1088,48 +1103,48 @@ compare_log_with_archives() {
                     echo "存档文件夹楼层符合保留规则，保留文件"
                 fi
             fi
-        # 情况2: 存档最新楼层高于日志楼层，且日志楼层非0
-        elif [ "$max_floor" -gt "$log_floor" ] && [ "$log_floor" -ne 0 ]; then
-            echo "存档最新楼层高于日志楼层，可能发生过回退"
+        # 情况2: 存档修改日期最新楼层高于日志楼层，且日志楼层非0
+        elif [ "$latest_floor" -gt "$log_floor" ] && [ "$log_floor" -ne 0 ]; then
+            echo "存档修改日期最新楼层高于日志楼层，可能发生过回退"
             
-            # 询问是否保留存档文件夹最新楼层
-            echo "是否保留存档文件夹最新楼层 $max_floor？ (y/n)"
-            read -n 1 keep_max_floor
+            # 询问是否保留存档文件夹修改日期最新楼层
+            echo "是否保留存档文件夹修改日期最新楼层 $latest_floor？ (y/n)"
+            read -n 1 keep_latest_floor
             echo ""
             
-            if [[ "$keep_max_floor" =~ ^[Yy]$ ]]; then
-                # 将最新楼层文件标记为_old
-                if [ -n "$max_file" ]; then
+            if [[ "$keep_latest_floor" =~ ^[Yy]$ ]]; then
+                # 将修改日期最新楼层文件标记为_old
+                if [ -n "$latest_file" ]; then
                     # 确定文件扩展名
                     local file_ext=""
-                    if [[ "$max_file" == *.jsonl ]]; then
+                    if [[ "$latest_file" == *.jsonl ]]; then
                         file_ext="jsonl"
-                    elif [[ "$max_file" == *.xz ]]; then
+                    elif [[ "$latest_file" == *.xz ]]; then
                         file_ext="xz"
                     fi
                     
-                    local old_basename=$(basename "$max_file" .$file_ext)
+                    local old_basename=$(basename "$latest_file" .$file_ext)
                     local new_name="${target_dir}/${old_basename}_old"
                     
                     # 获取文件内容用于比对
                     local content=""
                     if [[ "$file_ext" == "jsonl" ]]; then
-                        content=$(cat "$max_file")
+                        content=$(cat "$latest_file")
                     else
-                        content=$(xz -dc "$max_file" 2>/dev/null)
+                        content=$(xz -dc "$latest_file" 2>/dev/null)
                     fi
                     
                     local new_file=$(get_unique_filename "$new_name" "$file_ext" "${old_basename}_old" "$content")
                     
                     # 如果返回的文件名存在且内容相同，说明已存在相同内容
-                    if [ "$new_file" != "$max_file" ] && [ -f "$new_file" ]; then
+                    if [ "$new_file" != "$latest_file" ] && [ -f "$new_file" ]; then
                         # 文件已存在且内容相同，删除旧文件
-                        rm "$max_file"
-                        echo "删除重复文件: $max_file (内容已存在于 $new_file)"
+                        rm "$latest_file"
+                        echo "删除重复文件: $latest_file (内容已存在于 $new_file)"
                     else
                         # 文件不存在或内容不同，重命名
-                        mv "$max_file" "$new_file"
-                        echo "将存档最新楼层标记为: $new_file"
+                        mv "$latest_file" "$new_file"
+                        echo "将存档修改日期最新楼层标记为: $new_file"
                     fi
                 fi
                 
@@ -1158,7 +1173,7 @@ compare_log_with_archives() {
                 fi
             else
                 # 不保留，执行普通新生成，删除旧的楼层文件
-                for old_file in "$target_dir/${max_floor}楼"*.jsonl "$target_dir/${max_floor}楼"*.xz; do
+                for old_file in "$target_dir/${latest_floor}楼"*.jsonl "$target_dir/${latest_floor}楼"*.xz; do
                     [ -f "$old_file" ] || continue
                     if [[ "$old_file" != *"_old"* ]]; then
                         rm "$old_file"
@@ -1195,8 +1210,8 @@ compare_log_with_archives() {
                     fi
                 fi
             fi
-        # 情况3: 日志楼层为0，可能是新导入的聊天记录
-        elif [ "$log_floor" -eq 0 ] && [ "$max_floor" -gt 0 ]; then
+        # 情况3: 日志楼层为0，可能是聊天记录被清空
+        elif [ "$log_floor" -eq 0 ] && [ "$latest_floor" -gt 0 ]; then
             echo "日志楼层为0，存档文件夹有内容，可能需要导入到酒馆"
             
             # 询问是否需要导入存档到酒馆
@@ -1207,16 +1222,18 @@ compare_log_with_archives() {
             if [[ "$import_to_tavern" =~ ^[Yy]$ ]]; then
                 # 询问导入的楼层类型
                 echo "导入哪种楼层？"
-                echo "1. 最新楼层 ($max_floor)"
-                echo "2. 最高楼层 (可能是其他备份)"
+                echo "1. 最新楼层 ($latest_floor)"
+                echo "2. 最高楼层 ($max_floor)"
                 read -n 1 floor_choice
                 echo ""
                 
-                local import_floor=$max_floor
+                local import_floor=$latest_floor
                 
                 if [ "$floor_choice" == "2" ]; then
+                    # 将import_floor设置为最高楼层
+                    import_floor=$max_floor
+                    
                     # 查找最高楼层文件
-                    local highest_floor=0
                     local highest_file=""
                     
                     # 包括带有_old标记的文件
@@ -1226,14 +1243,30 @@ compare_log_with_archives() {
                         # 提取楼层数
                         local archive_floor=$(echo "$archive_file" | grep -o '[0-9]\+楼' | grep -o '[0-9]\+')
                         
-                        if [ -n "$archive_floor" ] && [ "$archive_floor" -gt "$highest_floor" ]; then
-                            highest_floor=$archive_floor
+                        if [ -n "$archive_floor" ] && [ "$archive_floor" = "$max_floor" ]; then
                             highest_file="$archive_file"
+                            break
                         fi
                     done
                     
-                    import_floor=$highest_floor
-                    max_file=$highest_file
+                    # 如果没找到最高楼层文件，再次查找一遍
+                    if [ -z "$highest_file" ]; then
+                        for archive_file in "$target_dir"/*楼*.jsonl "$target_dir"/*楼*.xz; do
+                            [ -f "$archive_file" ] || continue
+                            
+                            # 提取楼层数
+                            local archive_floor=$(echo "$archive_file" | grep -o '[0-9]\+楼' | grep -o '[0-9]\+')
+                            
+                            if [ -n "$archive_floor" ] && [ "$archive_floor" -eq "$max_floor" ]; then
+                                highest_file="$archive_file"
+                                break
+                            fi
+                        done
+                    fi
+                    
+                    if [ -n "$highest_file" ]; then
+                        max_file=$highest_file
+                    fi
                 fi
                 
                 # 询问是覆盖还是新建
@@ -1245,10 +1278,18 @@ compare_log_with_archives() {
                 
                 # 获取要导入的文件内容
                 local import_content=""
-                if [[ "$max_file" == *.jsonl ]]; then
-                    import_content=$(cat "$max_file")
+                local file_to_import=""
+                
+                if [ "$floor_choice" == "2" ]; then
+                    file_to_import=$highest_file
                 else
-                    import_content=$(xz -dc "$max_file" 2>/dev/null)
+                    file_to_import=$latest_file
+                fi
+                
+                if [[ "$file_to_import" == *.jsonl ]]; then
+                    import_content=$(cat "$file_to_import")
+                else
+                    import_content=$(xz -dc "$file_to_import" 2>/dev/null)
                 fi
                 
                 if [ "$import_mode" == "1" ]; then
@@ -3621,7 +3662,7 @@ change_username() {
     echo "      此设置用于适配不同的SillyTavern用户目录。"
     echo "      修改此设置会改变脚本读取和保存文件的路径。"
     echo ""
-    echo "请输入新的用户名 (直接回车取消): "
+    echo "请输入新的用户名 (回车确认，直接回车取消): "
     read -r new_username
     
     # 如果用户直接回车，取消操作
@@ -5045,7 +5086,7 @@ import_chat_records() {
     local search_term=""
     local filtered_char_dirs=()
     while true; do
-        echo -n "请输入要导入的角色名（支持模糊搜索，直接回车取消）："
+        echo -n "请输入要导入的角色名（支持模糊搜索，回车确认，直接回车取消）："
         read -r search_term
         
         # 如果直接回车，取消操作
@@ -5177,81 +5218,116 @@ import_chat_records() {
     echo "文件总数: ${#floor_files[@]}"
     echo ""
     
+    # 查找修改时间最新的文件及其楼层
+    local latest_file=""
+    local latest_mtime=0
+    local latest_floor=0
+    
+    for file in "${floor_files[@]}"; do
+        # 获取文件修改时间
+        local mtime=$(stat -c %Y "$file" 2>/dev/null || stat -f %m "$file" 2>/dev/null)
+        
+        # 如果是修改时间最新的文件
+        if [ "$mtime" -gt "$latest_mtime" ]; then
+            latest_mtime=$mtime
+            latest_file="$file"
+            
+            # 提取楼层数
+            local basename=$(basename "$file")
+            latest_floor=$(echo "$basename" | grep -oE '^[0-9]+' | head -1)
+        fi
+    done
+    
     # 选择导入模式
     local import_mode=0
-    while true; do
-        echo -n "请选择导入模式 (1.导入最新楼层 (${max_floor} 楼), 2.导入指定楼层, 直接回车取消)："
-        read -r import_mode
+    echo -n "请选择导入模式 (1.导入修改时间最新楼层 (${latest_floor} 楼), 2.导入最高楼层 (${max_floor} 楼), 3.导入指定楼层): "
+    import_mode=$(get_single_key)
+    echo "$import_mode"
+    
+    if [ "$import_mode" = "1" ]; then
+        # 导入修改时间最新楼层
+        local target_floor="$latest_floor"
+        # 直接设置文件
+        file_to_import="$latest_file"
+    elif [ "$import_mode" = "2" ]; then
+        # 导入最高楼层
+        local target_floor="$max_floor"
+        # 查找最高楼层文件
+        for file in "${floor_files[@]}"; do
+            local basename=$(basename "$file")
+            if [[ "$basename" =~ ^${max_floor}楼 ]]; then
+                file_to_import="$file"
+                break
+            fi
+        done
+    elif [ "$import_mode" = "3" ]; then
+        # 导入指定楼层
+        echo -n "请输入要导入的楼层数："
+        read -r target_floor
         
-        if [ -z "$import_mode" ]; then
-            echo "已取消导入操作"
-            press_any_key
-            return
-        elif [ "$import_mode" = "1" ]; then
-            # 导入最新楼层
-            local target_floor="$max_floor"
-            break
-        elif [ "$import_mode" = "2" ]; then
-            # 导入指定楼层
-            echo -n "请输入要导入的楼层数："
-            read -r target_floor
-            
-            # 验证楼层是否存在
-            local floor_exists=0
-            for floor in "${floor_numbers[@]}"; do
-                if [ "$floor" = "$target_floor" ]; then
-                    floor_exists=1
+        # 验证楼层是否存在
+        local floor_exists=0
+        for floor in "${floor_numbers[@]}"; do
+            if [ "$floor" = "$target_floor" ]; then
+                floor_exists=1
+                break
+            fi
+        done
+        
+        if [ "$floor_exists" -eq 1 ]; then
+            # 找到对应楼层的文件
+            local file_to_import=""
+            for file in "${floor_files[@]}"; do
+                local basename=$(basename "$file")
+                if [[ "$basename" =~ ^${target_floor}楼 ]]; then
+                    file_to_import="$file"
                     break
                 fi
             done
-            
-            if [ "$floor_exists" -eq 1 ]; then
-                break
-            else
-                echo "指定的楼层不存在，正在查找最接近的楼层..."
-                
-                # 找出最接近的3个楼层
-                local closest_floors=()
-                local floor_diffs=()
-                
-                for floor in "${floor_numbers[@]}"; do
-                    local diff=$((floor > target_floor ? floor - target_floor : target_floor - floor))
-                    floor_diffs+=("$diff:$floor")
-                done
-                
-                # 排序差值
-                IFS=$'\n' floor_diffs=($(sort -n <<<"${floor_diffs[*]}"))
-                unset IFS
-                
-                # 提取前3个最接近的楼层
-                echo "找到以下最接近的楼层："
-                local count=0
-                for item in "${floor_diffs[@]}"; do
-                    IFS=':' read -r diff floor <<< "$item"
-                    count=$((count + 1))
-                    echo "$count. $floor 楼 (相差: $diff)"
-                    closest_floors+=("$floor")
-                    [ "$count" -eq 3 ] && break
-                done
-                
-                echo -n "请选择楼层 (1-$count)："
-                read -r closest_index
-                
-                if [ -z "$closest_index" ]; then
-                    echo "已取消导入操作"
-                    press_any_key
-                    return
-                elif [[ ! "$closest_index" =~ ^[0-9]+$ ]] || [ "$closest_index" -lt 1 ] || [ "$closest_index" -gt "$count" ]; then
-                    echo "无效的序号，请重新输入。"
-                else
-                    target_floor="${closest_floors[$((closest_index-1))]}"
-                    break
-                fi
-            fi
         else
-            echo "无效选择，请重新输入 (1 或 2):"
+            echo "指定的楼层不存在，正在查找最接近的楼层..."
+            
+            # 找出最接近的3个楼层
+            local closest_floors=()
+            local floor_diffs=()
+            
+            for floor in "${floor_numbers[@]}"; do
+                local diff=$((floor > target_floor ? floor - target_floor : target_floor - floor))
+                floor_diffs+=("$diff:$floor")
+            done
+            
+            # 排序差值
+            IFS=$'\n' floor_diffs=($(sort -n <<<"${floor_diffs[*]}"))
+            unset IFS
+            
+            # 提取前3个最接近的楼层
+            echo "找到以下最接近的楼层："
+            local count=0
+            for item in "${floor_diffs[@]}"; do
+                IFS=':' read -r diff floor <<< "$item"
+                count=$((count + 1))
+                echo "$count. $floor 楼 (相差: $diff)"
+                closest_floors+=("$floor")
+                [ "$count" -eq 3 ] && break
+            done
+            
+            echo -n "请选择楼层 (1-$count)："
+            read -r closest_index
+            
+            if [ -z "$closest_index" ]; then
+                echo "已取消导入操作"
+                press_any_key
+                return
+            elif [[ ! "$closest_index" =~ ^[0-9]+$ ]] || [ "$closest_index" -lt 1 ] || [ "$closest_index" -gt "$count" ]; then
+                echo "无效的序号，请重新输入。"
+            else
+                target_floor="${closest_floors[$((closest_index-1))]}"
+                break
+            fi
         fi
-    done
+    else
+        echo "无效选择，请重新输入 (1 或 2):"
+    fi
     
     # 找到对应楼层的文件
     local file_to_import=""
@@ -5271,24 +5347,21 @@ import_chat_records() {
     
     # 选择导入方式
     local import_type=""
-    while true; do
-        echo ""
-        echo "请选择导入方式:"
-        echo "1. 覆盖原始聊天记录"
-        echo "2. 新建聊天记录"
-        echo -n "请选择 (1-2, 直接回车取消)："
-        read -r import_type
-        
-        if [ -z "$import_type" ]; then
-            echo "已取消导入操作"
-            press_any_key
-            return
-        elif [ "$import_type" = "1" ] || [ "$import_type" = "2" ]; then
-            break
-        else
-            echo "无效选择，请重新输入 (1 或 2)"
-        fi
-    done
+    echo ""
+    echo "请选择导入方式:"
+    echo "1. 覆盖原始聊天记录"
+    echo "2. 新建聊天记录"
+    echo -n "请选择 (1-2): "
+    import_type=$(get_single_key)
+    echo "$import_type"
+    
+    if [ "$import_type" = "1" ] || [ "$import_type" = "2" ]; then
+        : # 不执行任何操作，继续
+    else
+        echo "无效选择，请重新输入 (1 或 2)"
+        press_any_key
+        return
+    fi
     
     # 确定目标文件名和路径
     local target_filename=""
@@ -5309,30 +5382,31 @@ import_chat_records() {
     echo "源文件: $file_to_import"
     echo "目标文件: $target_filename"
     echo -n "确认导入? (y/n)"
-    read -r confirm
+    confirm=$(get_single_key)
+    echo "$confirm"
     
-    if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
+    if [[ "$confirm" =~ ^[yY]$ ]]; then
+        # 执行导入
+        echo "正在导入文件..."
+        
+        # 检查文件类型并解压或复制
+        if [[ "$file_to_import" == *.xz ]]; then
+            # 使用sed去掉文件末尾可能的多余空行
+            xz -dc "$file_to_import" | awk 'NF > 0 || NR == 1' > "$target_filename"
+        else
+            # 使用awk去掉文件末尾可能的多余空行
+            awk 'NF > 0 || NR == 1' "$file_to_import" > "$target_filename"
+        fi
+        
+        if [ $? -eq 0 ]; then
+            echo "导入成功！"
+        else
+            echo "导入失败，请检查文件权限和磁盘空间。"
+        fi
+    else
         echo "已取消导入操作"
         press_any_key
         return
-    fi
-    
-    # 执行导入
-    echo "正在导入文件..."
-    
-    # 检查文件类型并解压或复制
-    if [[ "$file_to_import" == *.xz ]]; then
-        # 使用sed去掉文件末尾可能的多余空行
-        xz -dc "$file_to_import" | awk 'NF > 0 || NR == 1' > "$target_filename"
-    else
-        # 使用awk去掉文件末尾可能的多余空行
-        awk 'NF > 0 || NR == 1' "$file_to_import" > "$target_filename"
-    fi
-    
-    if [ $? -eq 0 ]; then
-        echo "导入成功！"
-    else
-        echo "导入失败，请检查文件权限和磁盘空间。"
     fi
     
     press_any_key
