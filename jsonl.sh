@@ -5354,7 +5354,7 @@ main_menu() {
         clear
         echo -e "\033[32m按Ctrl+C退出程序\033[0m"
         echo "作者：柳拂城"
-        echo "当前版本：1.3.3"
+        echo "当前版本：1.3.4"
         echo "首次使用请先输入2进入设置（记得看GitHub上的Readme）"
         echo "第一次写脚本，如遇bug请在GitHub上反馈( *ˊᵕˋ)✩︎‧₊"
         echo "GitHub链接：https://github.com/Liu-fucheng/Jsonl_monitor"
@@ -5412,7 +5412,7 @@ main_menu() {
 # 检查脚本是否有新版本
 check_for_updates() {
     # 当前版本
-    local CURRENT_VERSION="1.3.3"
+    local CURRENT_VERSION="1.3.4"
     # 版本信息文件
     local VERSION_CHECK_FILE="$LOG_DIR/version_check.txt"
     # 检查间隔（1天，以秒为单位）
