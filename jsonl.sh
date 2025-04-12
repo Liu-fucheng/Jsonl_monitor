@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# 脚本版本
+VERSION="1.3.5"
+
 # 使用相对路径
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 SILLY_TAVERN_DIR="${SCRIPT_DIR}/SillyTavern"
@@ -3971,6 +3974,11 @@ cleanup_menu() {
                                                     echo "取消删除操作"
                                                 fi
                                                 ;;
+                                            3)
+                                                echo "已取消，返回上一级菜单"
+                                                press_any_key
+                                                continue
+                                                ;;
                                             *)
                                                 echo "跳过目录 $(basename "$chat_dir")"
                                                 ;;
@@ -4508,6 +4516,11 @@ cleanup_menu() {
                                                     else
                                                         echo "取消删除操作"
                                                     fi
+                                                    ;;
+                                                3)
+                                                    echo "已取消，返回上一级菜单"
+                                                    press_any_key
+                                                    continue
                                                     ;;
                                                 *)
                                                     echo "跳过目录 $(basename "$chat_dir")"
@@ -5401,7 +5414,8 @@ main_menu() {
         clear
         echo -e "\033[32m按Ctrl+C退出程序\033[0m"
         echo "作者：柳拂城"
-        echo "版本：1.3.5"
+        echo "当前版本：$VERSION（2.0后更新会减少）"
+        echo "目前还在频繁修bug阶段，更新会比较多，更新提示是一天检测一次，可能不及时，大家有空多点点更新"
         echo "首次使用请先输入2进入设置（记得看GitHub上的Readme）"
         echo "第一次写脚本，如遇bug请在GitHub上反馈( *ˊᵕˋ)✩︎‧₊"
         echo "GitHub链接：https://github.com/Liu-fucheng/Jsonl_monitor"
@@ -5458,188 +5472,135 @@ main_menu() {
 
 # 检查脚本是否有新版本
 check_for_updates() {
-    # 设置版本检查文件和时间间隔（1天）
-    local version_check_file="$SCRIPT_DIR/.last_version_check"
-    local check_interval=$((60*60*24))  # 1天的秒数
-    local current_time=$(date +%s)
-    local current_version="1.3.4"
+    # 当前版本
+    local CURRENT_VERSION="$VERSION"
+    # 版本信息文件
+    local VERSION_CHECK_FILE="$LOG_DIR/version_check.txt"
+    # 检查间隔（1天，以秒为单位）
+    local CHECK_INTERVAL=$((1 * 24 * 60 * 60))
     
-    # 如果版本检查文件存在，检查上次检查时间
-    if [ -f "$version_check_file" ]; then
-        local last_check_data=$(cat "$version_check_file")
-        local last_check_time=$(echo "$last_check_data" | grep "last_check_time=" | cut -d'=' -f2)
-        local cached_latest_version=$(echo "$last_check_data" | grep "latest_version=" | cut -d'=' -f2)
-        local has_update=$(echo "$last_check_data" | grep "has_update=" | cut -d'=' -f2)
-        
-        # 如果距离上次检查还不到间隔时间，使用缓存的结果
-        if [ -n "$last_check_time" ] && [ $((current_time - last_check_time)) -lt $check_interval ]; then
-            if [ "$has_update" = "true" ] && [ -n "$cached_latest_version" ]; then
-                echo "检测到新版本: $cached_latest_version (当前: $current_version)"
-                echo "请在主菜单选择「3. 更新」进行更新"
-                press_any_key
-            fi
-            return
-        fi
+    # 如果版本检查文件不存在，创建一个
+    if [ ! -f "$VERSION_CHECK_FILE" ]; then
+        echo "last_check=0" > "$VERSION_CHECK_FILE"
+        echo "latest_version=$CURRENT_VERSION" >> "$VERSION_CHECK_FILE"
+        echo "has_notified=0" >> "$VERSION_CHECK_FILE"
     fi
-    
-    # 如果已到检查时间或首次检查
-    echo "正在检查更新..."
+
+    # 读取上次检查时间
+    local last_check=$(grep "last_check=" "$VERSION_CHECK_FILE" | cut -d= -f2)
+    local latest_version=$(grep "latest_version=" "$VERSION_CHECK_FILE" | cut -d= -f2)
+    local has_notified=$(grep "has_notified=" "$VERSION_CHECK_FILE" | cut -d= -f2)
+
+    # 获取当前时间
+    local current_time=$(date +%s)
     
     # 检查是否安装 curl
     if ! command -v curl &> /dev/null; then
         return
     fi
-    
-    # 检测IP地理位置，决定是否使用代理
-    local country_code
-    country_code=$(curl -s --connect-timeout 3 ipinfo.io/country)
-    local raw_url="https://raw.githubusercontent.com/${GITHUB_REPO}/main/version"
-    local latest_version
-    
-    if [ "$country_code" = "CN" ]; then
-        # 中国大陆IP，使用代理
-        local proxy_url="${GH_FAST}${raw_url#https://}"
-        latest_version=$(curl -s --connect-timeout 5 "${proxy_url}")
-    else
-        # 非中国大陆IP，直连
-        latest_version=$(curl -s --connect-timeout 5 "${raw_url}")
+
+    # 检查是否需要更新版本信息
+    if [ $((current_time - last_check)) -gt $CHECK_INTERVAL ]; then
+        # 如果已经过了检查间隔，尝试更新版本信息
+        update_version_info "$VERSION_CHECK_FILE" "$CURRENT_VERSION" "$latest_version" "$has_notified"
+    # 如果未通知且有新版本，显示通知
+    elif [ "$has_notified" -eq 0 ] && [ "$latest_version" != "$CURRENT_VERSION" ]; then
+        display_update_notification "$latest_version" "$CURRENT_VERSION"
+        # 标记为已通知
+        sed -i "s/has_notified=0/has_notified=1/g" "$VERSION_CHECK_FILE" 2>/dev/null || \
+        sed "s/has_notified=0/has_notified=1/g" "$VERSION_CHECK_FILE" > "$VERSION_CHECK_FILE.tmp" && \
+        mv "$VERSION_CHECK_FILE.tmp" "$VERSION_CHECK_FILE"
     fi
-    
-    # 更新版本检查文件
-    local has_update="false"
-    if [ -n "$latest_version" ] && [ "$latest_version" != "$current_version" ]; then
-        has_update="true"
-        echo "检测到新版本: $latest_version (当前: $current_version)"
-        echo "请在主菜单选择「3. 更新」进行更新"
-        press_any_key
-    fi
-    
-    # 保存检查结果到文件
-    echo "last_check_time=$current_time" > "$version_check_file"
-    echo "latest_version=$latest_version" >> "$version_check_file"
-    echo "has_update=$has_update" >> "$version_check_file"
 }
 
-update_script() {
-    clear
-    echo "正在检查更新..."
+# 更新版本信息
+update_version_info() {
+    local VERSION_CHECK_FILE="$1"
+    local CURRENT_VERSION="$2"
+    local previous_latest_version="$3"
+    local has_notified="$4"
     
-    # 临时目录用于下载
-    TEMP_DIR="$SCRIPT_DIR/temp_update"
-    mkdir -p "$TEMP_DIR"
-    cd "$TEMP_DIR"
-    
-    # 检查是否安装必要的命令
-    if ! command -v curl &> /dev/null; then
-        echo "未安装 curl，正在尝试安装..."
-        pkg install curl -y
-        if [ $? -ne 0 ]; then
-            echo "安装 curl 失败，请手动安装后重试。"
-            press_any_key
-            cd "$SCRIPT_DIR"
-            rm -rf "$TEMP_DIR"
-            return 1
-        fi
-    fi
-    
-    # 检查是否安装 git
-    if ! command -v git &> /dev/null; then
-        echo "未安装 git，正在尝试安装..."
-        pkg install git -y
-        if [ $? -ne 0 ]; then
-            echo "安装 git 失败，请手动安装后重试。"
-            press_any_key
-            cd "$SCRIPT_DIR"
-            rm -rf "$TEMP_DIR"
-            return 1
-        fi
-    fi
-    
-    # 检测IP地理位置，决定是否使用代理
-    echo "检测IP地理位置，判断是否使用GitHub代理..."
-    local country_code
-    country_code=$(curl -s --connect-timeout 5 ipinfo.io/country)
-    local download_url=""
-    
-    if [ -n "$country_code" ] && [[ "$country_code" =~ ^[A-Z]{2}$ ]]; then
-        echo "检测到国家代码: $country_code"
-        if [ "$country_code" = "CN" ]; then
-            echo "检测到中国大陆IP，默认启用GitHub代理: $GH_FAST"
-            read -rp "是否禁用GitHub代理进行下载？(y/N): " disable_proxy
-            if [[ "$disable_proxy" =~ ^[Yy]$ ]]; then
-                download_url="https://github.com/${GITHUB_REPO}.git"
-                echo "已禁用GitHub代理，将直连GitHub下载。"
-            else
-                download_url="${GH_FAST}https://github.com/${GITHUB_REPO}.git"
-                echo "将使用GitHub代理下载: $GH_FAST"
-            fi
-        else
-            download_url="https://github.com/${GITHUB_REPO}.git"
-            echo "非中国大陆IP，将直连GitHub下载。"
-        fi
-    else
-        echo "无法检测IP地理位置或国家代码无效，将直连GitHub下载。"
-        download_url="https://github.com/${GITHUB_REPO}.git"
-    fi
+    # 获取当前时间
+    local current_time=$(date +%s)
 
-    # 从GitHub下载最新代码
-    echo "从 GitHub 下载最新代码..."
-    if [ "$country_code" = "CN" ] && [[ ! "$disable_proxy" =~ ^[Yy]$ ]]; then
-        # 中国用户且未禁用代理时，使用curl直接下载
-        echo "正在使用curl直接下载jsonl.sh..."
-        local raw_url="https://raw.githubusercontent.com/${GITHUB_REPO}/main/jsonl.sh"
-        local proxy_url="${GH_FAST}${raw_url#https://}"
-        curl -O "${proxy_url}"
+    # 尝试在后台检查GitHub上的最新版本
+    (
+        # 设置临时检查目录
+        local TEMP_CHECK_DIR="$LOG_DIR/temp_version_check"
+        mkdir -p "$TEMP_CHECK_DIR"
+        cd "$TEMP_CHECK_DIR" || return
+        
+        # 检测IP地理位置，决定是否使用代理
+        local country_code
+        country_code=$(curl -s --connect-timeout 5 ipinfo.io/country)
+        local download_url="https://github.com/Liu-fucheng/Jsonl_monitor.git"
+        
+        # 中国大陆用户使用代理
+        if [ "$country_code" = "CN" ]; then
+            download_url="https://ghproxy.com/https://github.com/Liu-fucheng/Jsonl_monitor.git"
+        fi
+        
+        # 使用git clone --depth=1只获取最新版本的信息
+        git clone --depth=1 "$download_url" . > /dev/null 2>&1
+        
         if [ $? -eq 0 ]; then
-            echo "直接下载成功"
-        else
-            echo "直接下载失败，尝试使用git..."
-            if [ -d ".git" ]; then
-                git pull
-            else
-                git clone "$download_url" .
+            # 从脚本中提取版本号 - 同时支持"版本："和"当前版本："两种格式
+            local remote_version
+            remote_version=$(grep -o "当前版本：[0-9.]*" jsonl.sh | cut -d'：' -f2 2>/dev/null)
+            
+            # 如果找不到"当前版本："格式，尝试旧格式"版本："
+            if [ -z "$remote_version" ]; then
+                remote_version=$(grep -o "版本：[0-9.]*" jsonl.sh | cut -d'：' -f2 2>/dev/null)
             fi
-        fi
-    else
-        # 非中国用户或禁用代理时，使用git
-        if [ -d ".git" ]; then
-            # 如果已经是git仓库，更新
-            git pull
+            
+            # 如果还是找不到，尝试简单地查找版本格式 x.y.z
+            if [ -z "$remote_version" ]; then
+                remote_version=$(grep -o "VERSION=\"[0-9.]*\"" jsonl.sh | grep -o "[0-9.]*" 2>/dev/null)
+            fi
+            
+            if [ -n "$remote_version" ]; then
+                # 更新版本检查文件
+                echo "last_check=$current_time" > "$VERSION_CHECK_FILE"
+                echo "latest_version=$remote_version" >> "$VERSION_CHECK_FILE"
+                
+                # 如果存在新版本且尚未通知，设置has_notified=0
+                if [ "$remote_version" != "$CURRENT_VERSION" ]; then
+                    echo "has_notified=0" >> "$VERSION_CHECK_FILE"
+                else
+                    echo "has_notified=1" >> "$VERSION_CHECK_FILE"
+                fi
+            fi
         else
-            # 否则克隆仓库
-            git clone "$download_url" .
+            # 检查失败时，使用之前的信息，但更新检查时间
+            echo "last_check=$current_time" > "$VERSION_CHECK_FILE"
+            echo "latest_version=$previous_latest_version" >> "$VERSION_CHECK_FILE"
+            echo "has_notified=$has_notified" >> "$VERSION_CHECK_FILE"
         fi
-    fi
+        
+        # 清理临时目录
+        cd "$LOG_DIR" || return
+        rm -rf "$TEMP_CHECK_DIR"
+    ) &
     
-    if [ $? -eq 0 ]; then
-        echo "下载成功，正在更新脚本..."
-        
-        # 确保脚本有执行权限
-        chmod +x jsonl.sh
-        
-        # 复制到脚本目录
-        cp -f jsonl.sh "$SCRIPT_DIR/"
-        
-        # 删除临时目录
-        cd "$SCRIPT_DIR"
-        rm -rf "$TEMP_DIR"
-        
-        echo "更新成功！当前为最新版本。"
-        echo "请重新启动脚本以应用更新。"
-        
-        # 提示用户重启脚本
-        read -p "现在重启脚本吗？(y/n): " restart
-        if [ "$restart" = "y" ] || [ "$restart" = "Y" ]; then
-            echo "重启脚本..."
-            exec bash "$SCRIPT_DIR/jsonl.sh"
-        fi
-    else
-        echo "更新失败，请检查网络连接或手动下载。"
-        cd "$SCRIPT_DIR"
-        rm -rf "$TEMP_DIR"
-    fi
-    
-    press_any_key
+    # 不等待后台检查完成
+}
+
+# 显示更新通知
+display_update_notification() {
+    local latest_version="$1"
+    local current_version="$2"
+
+    echo ""
+    echo "============================================="
+    echo "              新版本可用!"
+    echo "============================================="
+    echo "当前版本: $current_version"
+    echo "最新版本: $latest_version"
+    echo ""
+    echo "您可以通过主菜单中的'更新'选项进行更新。"
+    echo "============================================="
+    echo ""
+    # 不要等待用户按键，直接继续
 }
 
 # 启动监控
@@ -5746,6 +5707,9 @@ main() {
     
     # 从日志文件加载之前的行数记录
     load_line_counts
+    
+    # 检查是否有新版本
+    check_for_updates
     
     # 主菜单
     main_menu
