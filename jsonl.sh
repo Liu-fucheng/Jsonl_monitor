@@ -985,8 +985,8 @@ initial_scan() {
     # 设置初始扫描标志
     INITIAL_SCAN=1
     
-    # 获取所有JSONL文件
-    mapfile -t jsonl_files < <(find "$SOURCE_DIR" -type f -name "*.jsonl")
+    # 获取所有JSONL文件，限制在chats目录下
+    mapfile -t jsonl_files < <(find "$SOURCE_DIR" -maxdepth 1 -type f -name "*.jsonl")
     
     for file in "${jsonl_files[@]}"; do
         # 记录文件行数
@@ -1280,34 +1280,12 @@ compare_log_with_archives() {
 
 # 智能扫描 - 只扫描最近有变化的文件和新文件
 smart_scan() {
-    local changed_files=0
-    
-    # 获取所有JSONL文件
-    mapfile -t jsonl_files < <(find "$SOURCE_DIR" -type f -name "*.jsonl")
+    # 获取所有JSONL文件，限制在chats目录下
+    mapfile -t jsonl_files < <(find "$SOURCE_DIR" -maxdepth 1 -type f -name "*.jsonl")
     
     for file in "${jsonl_files[@]}"; do
-        # 检查是否为新文件
-        if [ -z "${line_counts[$file]}" ]; then
-            # 新文件直接添加到记录中
-            count=$(wc -l < "$file")
-            line_counts["$file"]=$count
-            mod_times["$file"]=$(stat -c %Y "$file" 2>/dev/null || stat -f %m "$file" 2>/dev/null)
-            changed_files=$((changed_files + 1))
-            continue
-        fi
-        
-        # 检查行数变化
-        if check_line_count_changes "$file"; then
-            changed_files=$((changed_files + 1))
-        fi
+        check_line_count_changes "$file"
     done
-    
-    # 如果有变化，保存记录
-    if [ $changed_files -gt 0 ]; then
-        save_line_counts
-    fi
-    
-    return $changed_files
 }
 
 # 存档全部聊天记录
@@ -1315,37 +1293,8 @@ archive_all_chats() {
     clear
     echo "开始扫描..."
     
-    # 检查是否安装了xz
-    if ! command -v xz &> /dev/null; then
-        echo "未安装xz工具，正在尝试安装..."
-        # 尝试使用不同的包管理器安装xz
-        if command -v apt &> /dev/null; then
-            sudo apt-get update && sudo apt-get install -y xz-utils
-        elif command -v yum &> /dev/null; then
-            sudo yum install -y xz
-        elif command -v pacman &> /dev/null; then
-            sudo pacman -S --noconfirm xz
-        elif command -v pkg &> /dev/null; then
-            pkg install -y xz
-        elif command -v brew &> /dev/null; then
-            brew install xz
-        else
-            echo "无法自动安装xz工具，请手动安装后重试。"
-            press_any_key
-            return 1
-        fi
-        
-        # 再次检查是否安装成功
-        if ! command -v xz &> /dev/null; then
-            echo "安装xz工具失败，无法继续操作。"
-            press_any_key
-            return 1
-        fi
-        echo "xz工具安装成功，继续处理..."
-    fi
-    
-    # 获取所有JSONL文件
-    mapfile -t jsonl_files < <(find "$SOURCE_DIR" -type f -name "*.jsonl")
+    # 获取所有JSONL文件，限制在chats目录下
+    mapfile -t jsonl_files < <(find "$SOURCE_DIR" -maxdepth 1 -type f -name "*.jsonl")
     
     total_files=${#jsonl_files[@]}
     processed=0
@@ -1369,9 +1318,9 @@ archive_all_chats() {
         # 计算楼层数 (行数)
         floor=$((current_count))
         
-        # 检查目标目录中是否已有该楼层的文件（检查.jsonl和.xz格式）
+        # 检查目标目录中是否已有该楼层的文件
         found=0
-        for existing_file in "$target_dir/${floor}楼"*.jsonl "$target_dir/${floor}楼"*.xz; do
+        for existing_file in "$target_dir/${floor}楼"*.jsonl; do
             if [ -f "$existing_file" ]; then
                 found=1
                 break
@@ -1389,16 +1338,15 @@ archive_all_chats() {
         
         # 保存文件
         if should_save_floor "$floor" "$floor" "$target_dir"; then
-            # 准备保存文件名（改为.xz格式）
+            # 准备保存文件名
             base_save_name="${target_dir}/${floor}楼"
             
-            # 获取唯一文件名，同时传入文件内容进行比对（使用xz专用函数）
-            save_file=$(get_xz_unique_filename "$base_save_name" "$floor" "$content")
+            # 获取唯一文件名，同时传入文件内容进行比对
+            save_file=$(get_unique_filename "$base_save_name" "jsonl" "$floor" "$content")
             
-            # 保存文件内容（直接压缩保存为.xz文件）
+            # 保存文件内容
             if [ ! -f "$save_file" ]; then
-                echo "$content" | xz -c > "$save_file"
-                echo "已保存 $save_file"
+                echo "$content" > "$save_file"
             fi
         fi
         
@@ -5523,13 +5471,13 @@ check_for_updates() {
     # 获取最新版本
     latest_version=$(curl -s "${GH_FAST}https://raw.githubusercontent.com/${GITHUB_REPO}/main/version.txt")
     
-    # 如果获取失败，使用备用链接
-    if [ -z "$latest_version" ]; then
+    # 如果获取失败或返回404，使用备用链接
+    if [ -z "$latest_version" ] || [[ "$latest_version" == *"404: Not Found"* ]]; then
         latest_version=$(curl -s "https://raw.githubusercontent.com/${GITHUB_REPO}/main/version.txt")
     fi
     
-    # 如果还是获取失败，返回
-    if [ -z "$latest_version" ]; then
+    # 如果还是获取失败或返回404，返回
+    if [ -z "$latest_version" ] || [[ "$latest_version" == *"404: Not Found"* ]]; then
         return
     fi
     
