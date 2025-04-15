@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 脚本版本
-VERSION="1.3.6_beta"
+VERSION="1.3.6"
 
 # 使用相对路径
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
@@ -985,8 +985,8 @@ initial_scan() {
     # 设置初始扫描标志
     INITIAL_SCAN=1
     
-    # 获取所有JSONL文件，限制在chats目录下
-    mapfile -t jsonl_files < <(find "$SOURCE_DIR" -maxdepth 1 -type f -name "*.jsonl")
+    # 获取所有JSONL文件
+    mapfile -t jsonl_files < <(find "$SOURCE_DIR" -type f -name "*.jsonl")
     
     for file in "${jsonl_files[@]}"; do
         # 记录文件行数
@@ -1280,12 +1280,34 @@ compare_log_with_archives() {
 
 # 智能扫描 - 只扫描最近有变化的文件和新文件
 smart_scan() {
-    # 获取所有JSONL文件，限制在chats目录下
-    mapfile -t jsonl_files < <(find "$SOURCE_DIR" -maxdepth 1 -type f -name "*.jsonl")
+    local changed_files=0
+    
+    # 获取所有JSONL文件
+    mapfile -t jsonl_files < <(find "$SOURCE_DIR" -type f -name "*.jsonl")
     
     for file in "${jsonl_files[@]}"; do
-        check_line_count_changes "$file"
+        # 检查是否为新文件
+        if [ -z "${line_counts[$file]}" ]; then
+            # 新文件直接添加到记录中
+            count=$(wc -l < "$file")
+            line_counts["$file"]=$count
+            mod_times["$file"]=$(stat -c %Y "$file" 2>/dev/null || stat -f %m "$file" 2>/dev/null)
+            changed_files=$((changed_files + 1))
+            continue
+        fi
+        
+        # 检查行数变化
+        if check_line_count_changes "$file"; then
+            changed_files=$((changed_files + 1))
+        fi
     done
+    
+    # 如果有变化，保存记录
+    if [ $changed_files -gt 0 ]; then
+        save_line_counts
+    fi
+    
+    return $changed_files
 }
 
 # 存档全部聊天记录
@@ -1293,8 +1315,37 @@ archive_all_chats() {
     clear
     echo "开始扫描..."
     
-    # 获取所有JSONL文件，限制在chats目录下
-    mapfile -t jsonl_files < <(find "$SOURCE_DIR" -maxdepth 1 -type f -name "*.jsonl")
+    # 检查是否安装了xz
+    if ! command -v xz &> /dev/null; then
+        echo "未安装xz工具，正在尝试安装..."
+        # 尝试使用不同的包管理器安装xz
+        if command -v apt &> /dev/null; then
+            sudo apt-get update && sudo apt-get install -y xz-utils
+        elif command -v yum &> /dev/null; then
+            sudo yum install -y xz
+        elif command -v pacman &> /dev/null; then
+            sudo pacman -S --noconfirm xz
+        elif command -v pkg &> /dev/null; then
+            pkg install -y xz
+        elif command -v brew &> /dev/null; then
+            brew install xz
+        else
+            echo "无法自动安装xz工具，请手动安装后重试。"
+            press_any_key
+            return 1
+        fi
+        
+        # 再次检查是否安装成功
+        if ! command -v xz &> /dev/null; then
+            echo "安装xz工具失败，无法继续操作。"
+            press_any_key
+            return 1
+        fi
+        echo "xz工具安装成功，继续处理..."
+    fi
+    
+    # 获取所有JSONL文件
+    mapfile -t jsonl_files < <(find "$SOURCE_DIR" -type f -name "*.jsonl")
     
     total_files=${#jsonl_files[@]}
     processed=0
@@ -1318,9 +1369,9 @@ archive_all_chats() {
         # 计算楼层数 (行数)
         floor=$((current_count))
         
-        # 检查目标目录中是否已有该楼层的文件
+        # 检查目标目录中是否已有该楼层的文件（检查.jsonl和.xz格式）
         found=0
-        for existing_file in "$target_dir/${floor}楼"*.jsonl; do
+        for existing_file in "$target_dir/${floor}楼"*.jsonl "$target_dir/${floor}楼"*.xz; do
             if [ -f "$existing_file" ]; then
                 found=1
                 break
@@ -1338,15 +1389,16 @@ archive_all_chats() {
         
         # 保存文件
         if should_save_floor "$floor" "$floor" "$target_dir"; then
-            # 准备保存文件名
+            # 准备保存文件名（改为.xz格式）
             base_save_name="${target_dir}/${floor}楼"
             
-            # 获取唯一文件名，同时传入文件内容进行比对
-            save_file=$(get_unique_filename "$base_save_name" "jsonl" "$floor" "$content")
+            # 获取唯一文件名，同时传入文件内容进行比对（使用xz专用函数）
+            save_file=$(get_xz_unique_filename "$base_save_name" "$floor" "$content")
             
-            # 保存文件内容
+            # 保存文件内容（直接压缩保存为.xz文件）
             if [ ! -f "$save_file" ]; then
-                echo "$content" > "$save_file"
+                echo "$content" | xz -c > "$save_file"
+                echo "已保存 $save_file"
             fi
         fi
         
@@ -3532,17 +3584,9 @@ settings_menu() {
         echo -e "2. 回退处理 (当前机制为: $([ "$ROLLBACK_MODE" -eq 1 ] && echo "删除重写仅保留最新档" || echo "删除重写保留每个档"))"
         echo "3. 自定义规则"
         echo -e "4. 修改用户名 (当前用户名: \033[33m${USERNAME}\033[0m)"
-        case "$INITIAL_SCAN_ARCHIVE" in
-            0)
-                echo -e "5. 初始扫描存档设置 (当前设置: 仅记录行数，不比对存档)"
-                ;;
-            1)
-                echo -e "5. 初始扫描存档设置 (当前设置: 记录并比对存档（\033[33m不生成\033[0m新存档）)"
-                ;;
-            2)
-                echo -e "5. 初始扫描存档设置 (当前设置: 记录并比对存档（\033[33m生成\033[0m新存档）)"
-                ;;
-        esac
+        echo -e "5. 初始扫描存档设置 (当前设置: $([ "$INITIAL_SCAN_ARCHIVE" = "0" ] && echo "仅记录行数，不比对存档" || \
+                        [ "$INITIAL_SCAN_ARCHIVE" = "1" ] && echo "记录并\033[33m比对\033[0m存档（没有存档时不生成新存档）" || \
+                        echo "记录并\033[33m比对\033[0m存档（没有存档时生成新存档"))"
         echo "6. 返回主菜单"
         echo -n "选择: "
         choice=$(get_single_key)
@@ -5468,34 +5512,135 @@ main_menu() {
 
 # 检查脚本是否有新版本
 check_for_updates() {
-    # 获取最新版本
-    latest_version=$(curl -s "${GH_FAST}https://raw.githubusercontent.com/${GITHUB_REPO}/main/version.txt")
+    # 当前版本
+    local CURRENT_VERSION="$VERSION"
+    # 版本信息文件
+    local VERSION_CHECK_FILE="$LOG_DIR/version_check.txt"
+    # 检查间隔（1天，以秒为单位）
+    local CHECK_INTERVAL=$((1 * 24 * 60 * 60))
     
-    # 如果获取失败或返回404，使用备用链接
-    if [ -z "$latest_version" ] || [[ "$latest_version" == *"404: Not Found"* ]]; then
-        latest_version=$(curl -s "https://raw.githubusercontent.com/${GITHUB_REPO}/main/version.txt")
+    # 如果版本检查文件不存在，创建一个
+    if [ ! -f "$VERSION_CHECK_FILE" ]; then
+        echo "last_check=0" > "$VERSION_CHECK_FILE"
+        echo "latest_version=$CURRENT_VERSION" >> "$VERSION_CHECK_FILE"
+        echo "has_notified=0" >> "$VERSION_CHECK_FILE"
     fi
+
+    # 读取上次检查时间
+    local last_check=$(grep "last_check=" "$VERSION_CHECK_FILE" | cut -d= -f2)
+    local latest_version=$(grep "latest_version=" "$VERSION_CHECK_FILE" | cut -d= -f2)
+    local has_notified=$(grep "has_notified=" "$VERSION_CHECK_FILE" | cut -d= -f2)
+
+    # 获取当前时间
+    local current_time=$(date +%s)
     
-    # 如果还是获取失败或返回404，返回
-    if [ -z "$latest_version" ] || [[ "$latest_version" == *"404: Not Found"* ]]; then
+    # 检查是否安装 curl
+    if ! command -v curl &> /dev/null; then
         return
     fi
-    
-    # 如果最新版本包含_beta，不提示更新
-    if [[ "$latest_version" == *"_beta"* ]]; then
-        return
+
+    # 检查是否需要更新版本信息
+    if [ $((current_time - last_check)) -gt $CHECK_INTERVAL ]; then
+        # 如果已经过了检查间隔，尝试更新版本信息
+        update_version_info "$VERSION_CHECK_FILE" "$CURRENT_VERSION" "$latest_version" "$has_notified"
+    # 如果未通知且有新版本，显示通知
+    elif [ "$has_notified" -eq 0 ] && [ "$latest_version" != "$CURRENT_VERSION" ]; then
+        display_update_notification "$latest_version" "$CURRENT_VERSION"
+        # 标记为已通知
+        sed -i "s/has_notified=0/has_notified=1/g" "$VERSION_CHECK_FILE" 2>/dev/null || \
+        sed "s/has_notified=0/has_notified=1/g" "$VERSION_CHECK_FILE" > "$VERSION_CHECK_FILE.tmp" && \
+        mv "$VERSION_CHECK_FILE.tmp" "$VERSION_CHECK_FILE"
     fi
+}
+
+# 更新版本信息
+update_version_info() {
+    local VERSION_CHECK_FILE="$1"
+    local CURRENT_VERSION="$2"
+    local previous_latest_version="$3"
+    local has_notified="$4"
     
-    # 比较版本
-    if [ "$(printf '%s\n' "$VERSION" "$latest_version" | sort -V | head -n1)" != "$latest_version" ]; then
-        echo -e "\033[33m发现新版本: $latest_version\033[0m"
-        echo -e "\033[33m当前版本: $VERSION\033[0m"
-        echo -e "\033[33m是否更新? (y/n)\033[0m"
-        read -r choice
-        if [ "$choice" = "y" ]; then
-            update_script
+    # 获取当前时间
+    local current_time=$(date +%s)
+
+    # 尝试在后台检查GitHub上的最新版本
+    (
+        # 设置临时检查目录
+        local TEMP_CHECK_DIR="$LOG_DIR/temp_version_check"
+        mkdir -p "$TEMP_CHECK_DIR"
+        cd "$TEMP_CHECK_DIR" || return
+        
+        # 检测IP地理位置，决定是否使用代理
+        local country_code
+        country_code=$(curl -s --connect-timeout 5 ipinfo.io/country)
+        local download_url="https://github.com/Liu-fucheng/Jsonl_monitor.git"
+        
+        # 中国大陆用户使用代理
+        if [ "$country_code" = "CN" ]; then
+            download_url="https://ghproxy.com/https://github.com/Liu-fucheng/Jsonl_monitor.git"
         fi
-    fi
+        
+        # 使用git clone --depth=1只获取最新版本的信息
+        git clone --depth=1 "$download_url" . > /dev/null 2>&1
+        
+        if [ $? -eq 0 ]; then
+            # 从脚本中提取版本号 - 同时支持"版本："和"当前版本："两种格式
+            local remote_version
+            remote_version=$(grep -o "当前版本：[0-9.]*" jsonl.sh | cut -d'：' -f2 2>/dev/null)
+            
+            # 如果找不到"当前版本："格式，尝试旧格式"版本："
+            if [ -z "$remote_version" ]; then
+                remote_version=$(grep -o "版本：[0-9.]*" jsonl.sh | cut -d'：' -f2 2>/dev/null)
+            fi
+            
+            # 如果还是找不到，尝试简单地查找版本格式 x.y.z
+            if [ -z "$remote_version" ]; then
+                remote_version=$(grep -o "VERSION=\"[0-9.]*\"" jsonl.sh | grep -o "[0-9.]*" 2>/dev/null)
+            fi
+            
+            if [ -n "$remote_version" ]; then
+                # 更新版本检查文件
+                echo "last_check=$current_time" > "$VERSION_CHECK_FILE"
+                echo "latest_version=$remote_version" >> "$VERSION_CHECK_FILE"
+                
+                # 如果存在新版本且尚未通知，设置has_notified=0
+                if [ "$remote_version" != "$CURRENT_VERSION" ]; then
+                    echo "has_notified=0" >> "$VERSION_CHECK_FILE"
+                else
+                    echo "has_notified=1" >> "$VERSION_CHECK_FILE"
+                fi
+            fi
+        else
+            # 检查失败时，使用之前的信息，但更新检查时间
+            echo "last_check=$current_time" > "$VERSION_CHECK_FILE"
+            echo "latest_version=$previous_latest_version" >> "$VERSION_CHECK_FILE"
+            echo "has_notified=$has_notified" >> "$VERSION_CHECK_FILE"
+        fi
+        
+        # 清理临时目录
+        cd "$LOG_DIR" || return
+        rm -rf "$TEMP_CHECK_DIR"
+    ) &
+    
+    # 不等待后台检查完成
+}
+
+# 显示更新通知
+display_update_notification() {
+    local latest_version="$1"
+    local current_version="$2"
+
+    echo ""
+    echo "============================================="
+    echo "              新版本可用!"
+    echo "============================================="
+    echo "当前版本: $current_version"
+    echo "最新版本: $latest_version"
+    echo ""
+    echo "您可以通过主菜单中的'更新'选项进行更新。"
+    echo "============================================="
+    echo ""
+    # 不要等待用户按键，直接继续
 }
 
 # 更新脚本
@@ -5715,17 +5860,15 @@ initial_scan_archive_menu() {
         clear
         echo -e "\033[32m按Ctrl+C退出程序\033[0m"
         echo "===== 初始扫描存档设置 ====="
-        case "$INITIAL_SCAN_ARCHIVE" in
-            0)
-                echo -e "当前设置: 仅记录行数，不比对存档"
-                ;;
-            1)
-                echo -e "当前设置: 记录并比对存档（\033[33m不生成\033[0m新存档）"
-                ;;
-            2)
-                echo -e "当前设置: 记录并比对存档（\033[33m生成\033[0m新存档）"
-                ;;
-        esac
+        local current_setting
+        if [ "$INITIAL_SCAN_ARCHIVE" = "0" ]; then
+            current_setting="仅记录行数，不比对存档"
+        elif [ "$INITIAL_SCAN_ARCHIVE" = "1" ]; then
+            current_setting="记录并比对存档（\033[33m不生成\033[0m新存档）"
+        else
+            current_setting="记录并比对存档（\033[33m生成\033[0m新存档）"
+        fi
+        echo -e "当前设置: $current_setting"
         echo "1. 仅记录行数，不比对存档（推荐）"
         echo -e "2. 记录并比对存档（\033[33m不生成\033[0m新存档）（耗时较长）"
         echo -e "3. 记录并比对存档（\033[33m生成\033[0m新存档）（耗时最长）"
@@ -5771,17 +5914,9 @@ settings_menu() {
         echo -e "2. 回退处理 (当前机制为: $([ "$ROLLBACK_MODE" -eq 1 ] && echo "删除重写仅保留最新档" || echo "删除重写保留每个档"))"
         echo "3. 自定义规则"
         echo -e "4. 修改用户名 (当前用户名: \033[33m${USERNAME}\033[0m)"
-        case "$INITIAL_SCAN_ARCHIVE" in
-            0)
-                echo -e "5. 初始扫描存档设置 (当前设置: 仅记录行数，不比对存档)"
-                ;;
-            1)
-                echo -e "5. 初始扫描存档设置 (当前设置: 记录并比对存档（\033[33m不生成\033[0m新存档）)"
-                ;;
-            2)
-                echo -e "5. 初始扫描存档设置 (当前设置: 记录并比对存档（\033[33m生成\033[0m新存档）)"
-                ;;
-        esac
+        echo -e "5. 初始扫描存档设置 (当前设置: $([ "$INITIAL_SCAN_ARCHIVE" = "0" ] && echo "仅记录行数，不比对存档" || \
+                        [ "$INITIAL_SCAN_ARCHIVE" = "1" ] && echo "记录并比对存档（\033[33m不生成\033[0m新存档）" || \
+                        echo "记录并比对存档（\033[33m生成\033[0m新存档）"))"
         echo "6. 返回主菜单"
         echo -n "选择: "
         choice=$(get_single_key)
