@@ -3643,9 +3643,16 @@ settings_menu() {
         echo -e "2. 回退处理 (当前机制为: $([ "$ROLLBACK_MODE" -eq 1 ] && echo "删除重写仅保留最新档" || echo "删除重写保留每个档"))"
         echo "3. 自定义规则"
         echo -e "4. 修改用户名 (当前用户名: \033[33m${USERNAME}\033[0m)"
-        echo -e "5. 初始扫描设置 (当前设置: $([ "$INITIAL_SCAN_ARCHIVE" = "0" ] && echo "仅记录行数，不比对存档" || \
-                [ "$INITIAL_SCAN_ARCHIVE" = "1" ] && echo "记录并比对存档（\033[33m没有存档时不生成新存档\033[0m）" || \
-                echo "记录并比对存档（\033[33m没有存档时生成新存档\033[0m）"))"
+        
+        # 使用更简单的条件显示当前初始扫描设置
+        if [ "$INITIAL_SCAN_ARCHIVE" = "0" ]; then
+            echo "5. 初始扫描设置 (当前设置: 仅记录行数，不比对存档)"
+        elif [ "$INITIAL_SCAN_ARCHIVE" = "1" ]; then
+            echo -e "5. 初始扫描设置 (当前设置: 记录并比对存档（\033[33m没有存档时不生成新存档\033[0m）)"
+        else
+            echo -e "5. 初始扫描设置 (当前设置: 记录并比对存档（\033[33m没有存档时生成新存档\033[0m）)"
+        fi
+        
         echo "6. 返回主菜单"
         echo -n "选择: "
         choice=$(get_single_key)
@@ -3683,12 +3690,20 @@ initial_scan_menu() {
     clear
     echo -e "\033[32m按Ctrl+C退出程序\033[0m"
     echo "===== 初始扫描设置 ====="
-    echo -e "当前设置: $([ "$INITIAL_SCAN_ARCHIVE" = "0" ] && echo "仅记录行数，不比对存档" || \
-                    [ "$INITIAL_SCAN_ARCHIVE" = "1" ] && echo "记录并比对存档（\033[33m没有存档时不生成新存档\033[0m）" || \
-                    echo "记录并比对存档（\033[33m没有存档时生成新存档\033[0m）")"
+    
+    if [ "$INITIAL_SCAN_ARCHIVE" = "0" ]; then
+        echo "当前设置: 仅记录行数，不比对存档"
+    elif [ "$INITIAL_SCAN_ARCHIVE" = "1" ]; then
+        echo -e "当前设置: 记录并比对存档（\033[33m没有存档时不生成新存档\033[0m）"
+    else
+        echo -e "当前设置: 记录并比对存档（\033[33m没有存档时生成新存档\033[0m）"
+    fi
+    
+    echo ""
     echo "1. 仅记录行数，不比对存档（推荐）"
-    echo "2. 记录并比对存档（\033[33m没有存档时不生成新存档\033[0m）（耗时较长）"
-    echo "3. 记录并比对存档（\033[33m没有存档时生成新存档\033[0m）（耗时最长）"
+    echo -e "2. 记录并比对存档（\033[33m没有存档时不生成新存档\033[0m）（耗时较长）"
+    echo -e "3. 记录并比对存档（\033[33m没有存档时生成新存档\033[0m）（耗时最长）"
+    echo ""
     echo -n "请选择 [1/2/3]: "
     choice=$(get_single_key)
     echo "$choice"
@@ -3700,11 +3715,11 @@ initial_scan_menu() {
             ;;
         2)
             INITIAL_SCAN_ARCHIVE=1
-            echo "已设置为: 记录并比对存档（\033[33m没有存档时不生成新存档\033[0m）"
+            echo -e "已设置为: 记录并比对存档（\033[33m没有存档时不生成新存档\033[0m）"
             ;;
         3)
             INITIAL_SCAN_ARCHIVE=2
-            echo "已设置为: 记录并比对存档（\033[33m没有存档时生成新存档\033[0m）"
+            echo -e "已设置为: 记录并比对存档（\033[33m没有存档时生成新存档\033[0m）"
             ;;
         *)
             echo "无效选择，未做更改"
