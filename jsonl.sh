@@ -12,7 +12,7 @@ SOURCE_DIR="${SILLY_TAVERN_DIR}/data/${USERNAME}/chats"
 SAVE_BASE_DIR="${SCRIPT_DIR}/saved-date/${USERNAME}/chats"
 LOG_DIR="${SCRIPT_DIR}/saved-date"
 LOG_FILE="${LOG_DIR}/line_counts.log"
-CONFIG_FILE="${LOG_DIR}/config.conf"
+CONFIG_FILE="${SCRIPT_DIR}/config.json"
 RULES_FILE="${LOG_DIR}/rules.txt"
 
 # GitHub相关设置
@@ -26,7 +26,6 @@ SAVE_MODE="interval" # "interval" 或 "latest"
 ROLLBACK_MODE=1 # 1: 删除重写仅保留最新档, 2: 保留旧档并标记
 SORT_METHOD="name" # "name" 或 "time"
 SORT_ORDER="asc" # "asc" 或 "desc"
-INITIAL_SCAN_ARCHIVE=0 # 0: 初始扫描不生成存档, 1: 初始扫描生成存档
 
 # 确保目录存在
 mkdir -p "$SOURCE_DIR"
@@ -59,31 +58,43 @@ check_dependencies() {
 # 加载配置
 load_config() {
     if [ -f "$CONFIG_FILE" ]; then
-        source "$CONFIG_FILE"
-        # 更新路径以使用新加载的USERNAME
-        SOURCE_DIR="${SILLY_TAVERN_DIR}/data/${USERNAME}/chats"
-        SAVE_BASE_DIR="${SCRIPT_DIR}/saved-date/${USERNAME}/chats"
+        # 从JSON文件加载配置
+        SAVE_BASE_DIR=$(jq -r '.SAVE_BASE_DIR' "$CONFIG_FILE")
+        SOURCE_DIR=$(jq -r '.SOURCE_DIR' "$CONFIG_FILE")
+        SAVE_MODE=$(jq -r '.SAVE_MODE' "$CONFIG_FILE")
+        SAVE_INTERVAL=$(jq -r '.SAVE_INTERVAL' "$CONFIG_FILE")
+        ROLLBACK_MODE=$(jq -r '.ROLLBACK_MODE' "$CONFIG_FILE")
+        USERNAME=$(jq -r '.USERNAME' "$CONFIG_FILE")
+        INITIAL_SCAN_ARCHIVE=$(jq -r '.INITIAL_SCAN_ARCHIVE' "$CONFIG_FILE")
     else
-        # 创建默认配置
-        echo "SAVE_INTERVAL=$SAVE_INTERVAL" > "$CONFIG_FILE"
-        echo "SAVE_MODE=$SAVE_MODE" >> "$CONFIG_FILE"
-        echo "ROLLBACK_MODE=$ROLLBACK_MODE" >> "$CONFIG_FILE"
-        echo "SORT_METHOD=$SORT_METHOD" >> "$CONFIG_FILE"
-        echo "SORT_ORDER=$SORT_ORDER" >> "$CONFIG_FILE"
-        echo "USERNAME=$USERNAME" >> "$CONFIG_FILE"
-        echo "INITIAL_SCAN_ARCHIVE=$INITIAL_SCAN_ARCHIVE" >> "$CONFIG_FILE"
+        # 使用默认配置
+        SAVE_BASE_DIR="$SCRIPT_DIR/archives"
+        SOURCE_DIR="$SCRIPT_DIR"
+        SAVE_MODE="interval"
+        SAVE_INTERVAL=10
+        ROLLBACK_MODE=1
+        USERNAME="$USERNAME"
+        INITIAL_SCAN_ARCHIVE=0
+        # 保存默认配置
+        save_config
     fi
 }
 
 # 保存配置
 save_config() {
-    echo "SAVE_INTERVAL=$SAVE_INTERVAL" > "$CONFIG_FILE"
-    echo "SAVE_MODE=$SAVE_MODE" >> "$CONFIG_FILE"
-    echo "ROLLBACK_MODE=$ROLLBACK_MODE" >> "$CONFIG_FILE"
-    echo "SORT_METHOD=$SORT_METHOD" >> "$CONFIG_FILE"
-    echo "SORT_ORDER=$SORT_ORDER" >> "$CONFIG_FILE"
-    echo "USERNAME=$USERNAME" >> "$CONFIG_FILE"
-    echo "INITIAL_SCAN_ARCHIVE=$INITIAL_SCAN_ARCHIVE" >> "$CONFIG_FILE"
+    # 创建JSON配置
+    local config_json='{
+        "SAVE_BASE_DIR": "'"$SAVE_BASE_DIR"'",
+        "SOURCE_DIR": "'"$SOURCE_DIR"'",
+        "SAVE_MODE": "'"$SAVE_MODE"'",
+        "SAVE_INTERVAL": '"$SAVE_INTERVAL"',
+        "ROLLBACK_MODE": '"$ROLLBACK_MODE"',
+        "USERNAME": "'"$USERNAME"'",
+        "INITIAL_SCAN_ARCHIVE": '"$INITIAL_SCAN_ARCHIVE"'
+    }'
+    
+    # 保存到文件
+    echo "$config_json" > "$CONFIG_FILE"
 }
 
 # 加载规则 - 使用简单的文本格式
@@ -984,19 +995,10 @@ initial_scan() {
         # 记录文件修改时间
         mod_times["$file"]=$(stat -c %Y "$file" 2>/dev/null || stat -f %m "$file" 2>/dev/null)
         
-        # 计算并记录MD5校验和
-        if command -v md5sum &> /dev/null; then
-            file_md5s["$file"]=$(md5sum "$file" | cut -d' ' -f1)
-        elif command -v md5 &> /dev/null; then  # macOS
-            file_md5s["$file"]=$(md5 -q "$file")
-        else
-            # 如果没有md5工具，使用简单的行数和文件大小检查
-            local size=$(stat -c %s "$file" 2>/dev/null || stat -f %z "$file" 2>/dev/null)
-            file_md5s["$file"]="size:$size"
+        # 根据INITIAL_SCAN_ARCHIVE设置决定是否执行compare_log_with_archives
+        if [ "$INITIAL_SCAN_ARCHIVE" -ne 0 ]; then
+            compare_log_with_archives "$file" "$count"
         fi
-        
-        # 比对日志与存档文件夹的最新楼层
-        compare_log_with_archives "$file" "$count"
     done
     
     # 保存记录
@@ -1058,12 +1060,6 @@ compare_log_with_archives() {
         fi
     done
     
-    # 如果是初始扫描且没有找到任何存档，且设置为不生成存档，跳过处理
-    if [ "$INITIAL_SCAN" -eq 1 ] && [ "$latest_floor" -eq 0 ] && [ "$INITIAL_SCAN_ARCHIVE" -eq 0 ]; then
-        echo "初始扫描，无本地存档，且设置为不生成存档，跳过 $file 的存档生成"
-        return
-    fi
-    
     # 如果日志楼层与存档修改日期最新楼层不一致，进行处理
     if [ "$latest_floor" -ne "$log_floor" ]; then
         echo "检测到楼层不匹配: $file"
@@ -1079,6 +1075,12 @@ compare_log_with_archives() {
             
             # 保存文件
             if should_save_floor "$log_floor" "$log_floor" "$target_dir"; then
+                # 如果INITIAL_SCAN_ARCHIVE=1且是初始扫描，则不生成新存档
+                if [ "$INITIAL_SCAN" -eq 1 ] && [ "$INITIAL_SCAN_ARCHIVE" -eq 1 ]; then
+                    echo "初始扫描存档设置为不生成新存档，跳过保存"
+                    return
+                fi
+                
                 local base_save_name="${target_dir}/${log_floor}楼"
                 
                 # 如果支持xz压缩
@@ -1160,39 +1162,13 @@ compare_log_with_archives() {
                 # 生成日志楼层
                 local content=$(cat "$file")
                 
-                if should_save_floor "$log_floor" "$log_floor" "$target_dir"; then
-                    local base_save_name="${target_dir}/${log_floor}楼"
-                    
-                    # 如果支持xz压缩
-                    if command -v xz &> /dev/null; then
-                        local save_file=$(get_xz_unique_filename "$base_save_name" "$log_floor" "$content")
-                        
-                        if [ ! -f "$save_file" ]; then
-                            echo "$content" | xz -c > "$save_file"
-                            echo "已保存日志楼层文件: $save_file"
-                        fi
-                    else
-                        local save_file=$(get_unique_filename "$base_save_name" "jsonl" "$log_floor" "$content")
-                        
-                        if [ ! -f "$save_file" ]; then
-                            echo "$content" > "$save_file"
-                            echo "已保存日志楼层文件: $save_file"
-                        fi
-                    fi
+                # 如果INITIAL_SCAN_ARCHIVE=1且是初始扫描，则不生成新存档
+                if [ "$INITIAL_SCAN" -eq 1 ] && [ "$INITIAL_SCAN_ARCHIVE" -eq 1 ]; then
+                    echo "初始扫描存档设置为不生成新存档，跳过保存"
+                    return
                 fi
-            else
-                # 不保留，执行普通新生成，删除旧的楼层文件
-                for old_file in "$target_dir/${latest_floor}楼"*.jsonl "$target_dir/${latest_floor}楼"*.xz; do
-                    [ -f "$old_file" ] || continue
-                    if [[ "$old_file" != *"_old"* ]]; then
-                        rm "$old_file"
-                        echo "删除旧的楼层文件: $old_file"
-                    fi
-                done
                 
-                # 生成日志楼层
-                local content=$(cat "$file")
-                
+                # 保存文件
                 if should_save_floor "$log_floor" "$log_floor" "$target_dir"; then
                     local base_save_name="${target_dir}/${log_floor}楼"
                     
@@ -1211,15 +1187,10 @@ compare_log_with_archives() {
                             echo "$content" > "$save_file"
                             echo "已保存日志楼层文件: $save_file"
                         fi
-                    fi
-                    
-                    # 检查是否因符合保留规则而保留
-                    if should_save_floor "$log_floor" "$log_floor" "$target_dir"; then
-                        echo "提示: 因符合保留规则，文件 $save_file 被保留"
                     fi
                 fi
             fi
-        # 情况3: 日志楼层为0，可能是聊天记录被清空
+        # 情况3: 日志楼层为0，存档文件夹有内容
         elif [ "$log_floor" -eq 0 ] && [ "$latest_floor" -gt 0 ]; then
             echo "日志楼层为0，存档文件夹有内容，可能需要导入到酒馆"
             
@@ -1266,16 +1237,14 @@ compare_log_with_archives() {
                             # 提取楼层数
                             local archive_floor=$(echo "$archive_file" | grep -o '[0-9]\+楼' | grep -o '[0-9]\+')
                             
-                            if [ -n "$archive_floor" ] && [ "$archive_floor" -eq "$max_floor" ]; then
+                            if [ -n "$archive_floor" ] && [ "$archive_floor" -gt "$import_floor" ]; then
+                                import_floor=$archive_floor
                                 highest_file="$archive_file"
-                                break
                             fi
                         done
                     fi
                     
-                    if [ -n "$highest_file" ]; then
-                        max_file=$highest_file
-                    fi
+                    max_file=$highest_file
                 fi
                 
                 # 询问是覆盖还是新建
@@ -1287,40 +1256,22 @@ compare_log_with_archives() {
                 
                 # 获取要导入的文件内容
                 local import_content=""
-                local file_to_import=""
-                
-                if [ "$floor_choice" == "2" ]; then
-                    file_to_import=$highest_file
+                if [[ "$max_file" == *.jsonl ]]; then
+                    import_content=$(cat "$max_file")
                 else
-                    file_to_import=$latest_file
+                    import_content=$(xz -dc "$max_file" 2>/dev/null)
                 fi
                 
-                if [[ "$file_to_import" == *.jsonl ]]; then
-                    import_content=$(cat "$file_to_import")
-                else
-                    import_content=$(xz -dc "$file_to_import" 2>/dev/null)
-                fi
-                
+                # 根据选择执行导入
                 if [ "$import_mode" == "1" ]; then
                     # 覆盖现有文件
                     echo "$import_content" > "$file"
-                    line_counts["$file"]=$import_floor
-                    echo "已将楼层 $import_floor 的内容导入到酒馆，覆盖现有文件"
+                    echo "已导入存档到酒馆: $file"
                 else
                     # 创建新文件
-                    local new_file_base=$(dirname "$file")/$(basename "$file" .jsonl)
-                    local new_file="${new_file_base}_imported.jsonl"
-                    local counter=1
-                    
-                    # 确保文件名不重复
-                    while [ -f "$new_file" ]; do
-                        new_file="${new_file_base}_imported_${counter}.jsonl"
-                        ((counter++))
-                    done
-                    
+                    local new_file="${file%.jsonl}_imported.jsonl"
                     echo "$import_content" > "$new_file"
-                    line_counts["$new_file"]=$import_floor
-                    echo "已将楼层 $import_floor 的内容导入到酒馆，创建新文件: $new_file"
+                    echo "已创建新文件: $new_file"
                 fi
             fi
         fi
@@ -3633,7 +3584,9 @@ settings_menu() {
         echo -e "2. 回退处理 (当前机制为: $([ "$ROLLBACK_MODE" -eq 1 ] && echo "删除重写仅保留最新档" || echo "删除重写保留每个档"))"
         echo "3. 自定义规则"
         echo -e "4. 修改用户名 (当前用户名: \033[33m${USERNAME}\033[0m)"
-        echo -e "5. 初始扫描设置 (当前设置: $([ "$INITIAL_SCAN_ARCHIVE" -eq 1 ] && echo "比对存档" || echo "不比对存档"))"
+        echo -e "5. 初始扫描存档设置 (当前设置: $([ "$INITIAL_SCAN_ARCHIVE" = "0" ] && echo "仅记录行数，不比对存档" || \
+                        [ "$INITIAL_SCAN_ARCHIVE" = "1" ] && echo "记录并\033[33m比对\033[0m存档（没有存档时不生成新存档）" || \
+                        echo "记录并\033[33m比对\033[0m存档（没有存档时生成新存档"))"
         echo "6. 返回主菜单"
         echo -n "选择: "
         choice=$(get_single_key)
@@ -3653,7 +3606,7 @@ settings_menu() {
                 change_username
                 ;;
             5)
-                initial_scan_menu
+                initial_scan_archive_menu
                 ;;
             6)
                 return
@@ -3664,36 +3617,6 @@ settings_menu() {
                 ;;
         esac
     done
-}
-
-# 初始扫描设置菜单
-initial_scan_menu() {
-    clear
-    echo "===== 初始扫描设置 ====="
-    echo "当初次扫描聊天记录时，如何处理："
-    echo "1. 仅记录不比对存档 (推荐)"
-    echo "2. 记录并比对存档（耗时较长）"
-    echo -n "请选择 [1/2]: "
-    choice=$(get_single_key)
-    echo "$choice"
-    
-    case "$choice" in
-        1)
-            INITIAL_SCAN_ARCHIVE=0
-            echo "已设置为初始扫描不生成存档"
-            ;;
-        2)
-            INITIAL_SCAN_ARCHIVE=1
-            echo "已设置为初始扫描生成存档"
-            ;;
-        *)
-            echo "无效选择，未做更改"
-            ;;
-    esac
-    
-    # 保存配置
-    save_config
-    press_any_key
 }
 
 # 修改用户名函数
@@ -5957,3 +5880,97 @@ main() {
 
 # 执行主函数
 main
+
+# 初始扫描存档设置
+INITIAL_SCAN_ARCHIVE=0  # 0: 跳过执行compare_log_with_archives
+                        # 1: 执行compare_log_with_archives但不生成新存档
+                        # 2: 执行compare_log_with_archives且生成新存档
+
+# 初始扫描存档设置菜单
+initial_scan_archive_menu() {
+    while true; do
+        clear
+        echo -e "\033[32m按Ctrl+C退出程序\033[0m"
+        echo "===== 初始扫描存档设置 ====="
+        echo -e "当前设置: $([ "$INITIAL_SCAN_ARCHIVE" = "0" ] && echo "仅记录行数，不比对存档" || \
+                        [ "$INITIAL_SCAN_ARCHIVE" = "1" ] && echo "记录并比对存档（\033[33m不生成\033[0m新存档）" || \
+                        echo "记录并比对存档（\033[33m生成\033[0m新存档）")"
+        echo "1. 仅记录行数，不比对存档（推荐）"
+        echo -e "2. 记录并比对存档（\033[33m不生成\033[0m新存档）（耗时较长）"
+        echo -e "3. 记录并比对存档（\033[33m生成\033[0m新存档）（耗时最长）"
+        echo "4. 返回设置菜单"
+        echo -n "选择: "
+        choice=$(get_single_key)
+        echo "$choice"
+        
+        case "$choice" in
+            1)
+                INITIAL_SCAN_ARCHIVE=0
+                save_config
+                echo "已设置初始扫描存档为: 仅记录行数，不比对存档"
+                ;;
+            2)
+                INITIAL_SCAN_ARCHIVE=1
+                save_config
+                echo -e "已设置初始扫描存档为: 记录并比对存档（\033[33m不生成\033[0m新存档）"
+                ;;
+            3)
+                INITIAL_SCAN_ARCHIVE=2
+                save_config
+                echo -e "已设置初始扫描存档为: 记录并比对存档（\033[33m生成\033[0m新存档）"
+                ;;
+            4)
+                return
+                ;;
+            *)
+                echo "无效选择"
+                ;;
+        esac
+        press_any_key
+    done
+}
+
+# 设置界面
+settings_menu() {
+    while true; do
+        clear
+        echo -e "\033[32m按Ctrl+C退出程序\033[0m"
+        echo "===== 设置 ====="
+        echo -e "1. 保留机制选择 (当前机制为: $([ "$SAVE_MODE" = "interval" ] && echo "保留\033[33m${SAVE_INTERVAL}\033[0m的倍数和最新楼层" || echo "仅保留最新楼层"))"
+        echo -e "2. 回退处理 (当前机制为: $([ "$ROLLBACK_MODE" -eq 1 ] && echo "删除重写仅保留最新档" || echo "删除重写保留每个档"))"
+        echo "3. 自定义规则"
+        echo -e "4. 修改用户名 (当前用户名: \033[33m${USERNAME}\033[0m)"
+        echo -e "5. 初始扫描存档设置 (当前设置: $([ "$INITIAL_SCAN_ARCHIVE" = "0" ] && echo "仅记录行数，不比对存档" || \
+                        [ "$INITIAL_SCAN_ARCHIVE" = "1" ] && echo "记录并比对存档（\033[33m不生成\033[0m新存档）" || \
+                        echo "记录并比对存档（\033[33m生成\033[0m新存档）"))"
+        echo "6. 返回主菜单"
+        echo -n "选择: "
+        choice=$(get_single_key)
+        echo "$choice"
+        
+        case "$choice" in
+            1)
+                retention_menu
+                ;;
+            2)
+                rollback_menu
+                ;;
+            3)
+                rules_menu
+                ;;
+            4)
+                change_username
+                ;;
+            5)
+                initial_scan_archive_menu
+                ;;
+            6)
+                return
+                ;;
+            *)
+                echo "无效选择"
+                press_any_key
+                ;;
+        esac
+    done
+}
