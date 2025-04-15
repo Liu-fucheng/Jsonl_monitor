@@ -3584,9 +3584,9 @@ settings_menu() {
         echo -e "2. 回退处理 (当前机制为: $([ "$ROLLBACK_MODE" -eq 1 ] && echo "删除重写仅保留最新档" || echo "删除重写保留每个档"))"
         echo "3. 自定义规则"
         echo -e "4. 修改用户名 (当前用户名: \033[33m${USERNAME}\033[0m)"
-        echo -e "5. 初始扫描存档设置 (当前设置: $([ "$INITIAL_SCAN_ARCHIVE" = "0" ] && echo "仅记录行数，不比对存档" || \
-                        [ "$INITIAL_SCAN_ARCHIVE" = "1" ] && echo "记录并\033[33m比对\033[0m存档（没有存档时不生成新存档）" || \
-                        echo "记录并\033[33m比对\033[0m存档（没有存档时生成新存档"))"
+        echo -e "5. 初始扫描存档设置 (当前设置: $([ "$INITIAL_SCAN_ARCHIVE" = "0" ] && echo "跳过执行compare_log_with_archives" || \
+                        [ "$INITIAL_SCAN_ARCHIVE" = "1" ] && echo "执行compare_log_with_archives但不生成新存档" || \
+                        echo "执行compare_log_with_archives且生成新存档"))"
         echo "6. 返回主菜单"
         echo -n "选择: "
         choice=$(get_single_key)
@@ -5765,6 +5765,103 @@ update_script() {
  
      press_any_key
 }
+# 初始扫描存档设置
+INITIAL_SCAN_ARCHIVE=0  # 0: 跳过执行compare_log_with_archives
+                        # 1: 执行compare_log_with_archives但不生成新存档
+                        # 2: 执行compare_log_with_archives且生成新存档
+
+# 初始扫描存档设置菜单
+initial_scan_archive_menu() {
+    while true; do
+        clear
+        echo "===== 设置初始扫描存档选项 ====="
+        echo "当前设置: $INITIAL_SCAN_ARCHIVE"
+        echo ""
+        echo "1. 仅记录行数，不比对存档（推荐）"
+        echo "2. 记录并比对存档（\033[33m没有存档时不生成新存档\033[0m）（耗时较长）"
+        echo "3. 记录并比对存档（\033[33m没有存档时生成新存档\033[0m）（耗时最长）"
+        echo "4. 返回"
+        echo ""
+        echo -n "请选择 [0-3]: "
+        read -r choice
+        
+        case $choice in
+            1)
+                INITIAL_SCAN_ARCHIVE=0
+                save_config
+                echo "已设置为：仅记录行数，不比对存档"
+                press_any_key
+                return
+                ;;
+            2)
+                INITIAL_SCAN_ARCHIVE=1
+                save_config
+                echo "已设置为：记录并比对存档（没有存档时不生成新存档）"
+                press_any_key
+                return
+                ;;
+            3)
+                INITIAL_SCAN_ARCHIVE=2
+                save_config
+                echo "已设置为：记录并比对存档（没有存档时生成新存档）"
+                press_any_key
+                return
+                ;;
+            4)
+                return
+                ;;
+            *)
+                echo "无效选项，请重新选择"
+                press_any_key
+                ;;
+        esac
+    done
+}
+
+# 设置界面
+settings_menu() {
+    while true; do
+        clear
+        echo -e "\033[32m按Ctrl+C退出程序\033[0m"
+        echo "===== 设置 ====="
+        echo -e "1. 保留机制选择 (当前机制为: $([ "$SAVE_MODE" = "interval" ] && echo "保留\033[33m${SAVE_INTERVAL}\033[0m的倍数和最新楼层" || echo "仅保留最新楼层"))"
+        echo -e "2. 回退处理 (当前机制为: $([ "$ROLLBACK_MODE" -eq 1 ] && echo "删除重写仅保留最新档" || echo "删除重写保留每个档"))"
+        echo "3. 自定义规则"
+        echo -e "4. 修改用户名 (当前用户名: \033[33m${USERNAME}\033[0m)"
+        echo -e "5. 初始扫描存档设置 (当前设置: $([ "$INITIAL_SCAN_ARCHIVE" = "0" ] && echo "跳过执行compare_log_with_archives" || \
+                        [ "$INITIAL_SCAN_ARCHIVE" = "1" ] && echo "执行compare_log_with_archives但不生成新存档" || \
+                        echo "执行compare_log_with_archives且生成新存档"))"
+        echo "6. 返回主菜单"
+        echo -n "选择: "
+        choice=$(get_single_key)
+        echo "$choice"
+        
+        case "$choice" in
+            1)
+                retention_menu
+                ;;
+            2)
+                rollback_menu
+                ;;
+            3)
+                rules_menu
+                ;;
+            4)
+                change_username
+                ;;
+            5)
+                initial_scan_archive_menu
+                ;;
+            6)
+                return
+                ;;
+            *)
+                echo "无效选择"
+                press_any_key
+                ;;
+        esac
+    done
+}
 
 # 启动监控
 start_monitoring() {
@@ -5849,105 +5946,6 @@ trap cleanup_on_exit SIGTERM SIGINT SIGHUP EXIT
 
 # 设置空的SIGINT处理器，覆盖前面可能的处理器
 trap '' SIGINT
-# 初始扫描存档设置
-INITIAL_SCAN_ARCHIVE=0  # 0: 跳过执行compare_log_with_archives
-                        # 1: 执行compare_log_with_archives但不生成新存档
-                        # 2: 执行compare_log_with_archives且生成新存档
-
-# 初始扫描存档设置菜单
-initial_scan_archive_menu() {
-    while true; do
-        clear
-        echo -e "\033[32m按Ctrl+C退出程序\033[0m"
-        echo "===== 初始扫描存档设置 ====="
-        local current_setting
-        if [ "$INITIAL_SCAN_ARCHIVE" = "0" ]; then
-            current_setting="仅记录行数，不比对存档"
-        elif [ "$INITIAL_SCAN_ARCHIVE" = "1" ]; then
-            current_setting="记录并比对存档（\033[33m不生成\033[0m新存档）"
-        else
-            current_setting="记录并比对存档（\033[33m生成\033[0m新存档）"
-        fi
-        echo -e "当前设置: $current_setting"
-        echo "1. 仅记录行数，不比对存档（推荐）"
-        echo -e "2. 记录并比对存档（\033[33m不生成\033[0m新存档）（耗时较长）"
-        echo -e "3. 记录并比对存档（\033[33m生成\033[0m新存档）（耗时最长）"
-        echo "4. 返回设置菜单"
-        echo -n "选择: "
-        choice=$(get_single_key)
-        echo "$choice"
-        
-        case "$choice" in
-            1)
-                INITIAL_SCAN_ARCHIVE=0
-                save_config
-                echo "已设置初始扫描存档为: 仅记录行数，不比对存档"
-                ;;
-            2)
-                INITIAL_SCAN_ARCHIVE=1
-                save_config
-                echo -e "已设置初始扫描存档为: 记录并比对存档（\033[33m不生成\033[0m新存档）"
-                ;;
-            3)
-                INITIAL_SCAN_ARCHIVE=2
-                save_config
-                echo -e "已设置初始扫描存档为: 记录并比对存档（\033[33m生成\033[0m新存档）"
-                ;;
-            4)
-                return
-                ;;
-            *)
-                echo "无效选择"
-                ;;
-        esac
-        press_any_key
-    done
-}
-
-# 设置界面
-settings_menu() {
-    while true; do
-        clear
-        echo -e "\033[32m按Ctrl+C退出程序\033[0m"
-        echo "===== 设置 ====="
-        echo -e "1. 保留机制选择 (当前机制为: $([ "$SAVE_MODE" = "interval" ] && echo "保留\033[33m${SAVE_INTERVAL}\033[0m的倍数和最新楼层" || echo "仅保留最新楼层"))"
-        echo -e "2. 回退处理 (当前机制为: $([ "$ROLLBACK_MODE" -eq 1 ] && echo "删除重写仅保留最新档" || echo "删除重写保留每个档"))"
-        echo "3. 自定义规则"
-        echo -e "4. 修改用户名 (当前用户名: \033[33m${USERNAME}\033[0m)"
-        echo -e "5. 初始扫描存档设置 (当前设置: $([ "$INITIAL_SCAN_ARCHIVE" = "0" ] && echo "仅记录行数，不比对存档" || \
-                        [ "$INITIAL_SCAN_ARCHIVE" = "1" ] && echo "记录并比对存档（\033[33m不生成\033[0m新存档）" || \
-                        echo "记录并比对存档（\033[33m生成\033[0m新存档）"))"
-        echo "6. 返回主菜单"
-        echo -n "选择: "
-        choice=$(get_single_key)
-        echo "$choice"
-        
-        case "$choice" in
-            1)
-                retention_menu
-                ;;
-            2)
-                rollback_menu
-                ;;
-            3)
-                rules_menu
-                ;;
-            4)
-                change_username
-                ;;
-            5)
-                initial_scan_archive_menu
-                ;;
-            6)
-                return
-                ;;
-            *)
-                echo "无效选择"
-                press_any_key
-                ;;
-        esac
-    done
-}
 
 # 主入口
 main() {
