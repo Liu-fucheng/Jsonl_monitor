@@ -5849,38 +5849,6 @@ trap cleanup_on_exit SIGTERM SIGINT SIGHUP EXIT
 
 # 设置空的SIGINT处理器，覆盖前面可能的处理器
 trap '' SIGINT
-
-# 主入口
-main() {
-    # 设置信号处理
-    trap 'cleanup_on_exit SIGINT; exit 0' SIGINT
-    trap 'cleanup_on_exit; exit 0' SIGTERM SIGHUP EXIT|
-    
-    # 检查依赖
-    check_dependencies
-    
-    # 加载配置
-    load_config
-    
-    # 加载规则
-    load_rules
-    
-    # 修复规则格式
-    fix_rule_formats
-    
-    # 从日志文件加载之前的行数记录
-    load_line_counts
-    
-    # 检查是否有新版本
-    check_for_updates
-    
-    # 主菜单
-    main_menu
-}
-
-# 执行主函数
-main
-
 # 初始扫描存档设置
 INITIAL_SCAN_ARCHIVE=0  # 0: 跳过执行compare_log_with_archives
                         # 1: 执行compare_log_with_archives但不生成新存档
@@ -5974,3 +5942,35 @@ settings_menu() {
         esac
     done
 }
+
+# 主入口
+main() {
+    # 设置信号处理
+    trap 'cleanup_on_exit SIGINT; exit 0' SIGINT
+    trap 'cleanup_on_exit; exit 0' SIGTERM SIGHUP EXIT|
+    
+    # 检查依赖
+    check_dependencies
+    
+    # 加载配置
+    load_config
+    
+    # 加载规则
+    load_rules
+    
+    # 修复规则格式
+    fix_rule_formats
+    
+    # 从日志文件加载之前的行数记录
+    load_line_counts
+    
+    # 检查是否有新版本
+    check_for_updates
+    
+    # 主菜单
+    main_menu
+}
+
+# 执行主函数
+main
+
