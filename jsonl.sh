@@ -26,7 +26,9 @@ SAVE_MODE="interval" # "interval" 或 "latest"
 ROLLBACK_MODE=1 # 1: 删除重写仅保留最新档, 2: 保留旧档并标记
 SORT_METHOD="name" # "name" 或 "time"
 SORT_ORDER="asc" # "asc" 或 "desc"
-INITIAL_SCAN_ARCHIVE=0 # 0: 初始扫描不生成存档, 1: 初始扫描生成存档
+INITIAL_SCAN_ARCHIVE=0 # 0: 跳过执行compare_log_with_archives
+                       # 1: 执行compare_log_with_archives但没有本地存档时不生成新存档
+                       # 2: 执行compare_log_with_archives且没有本地存档时生成新存档
 
 # 确保目录存在
 mkdir -p "$SOURCE_DIR"
@@ -995,8 +997,10 @@ initial_scan() {
             file_md5s["$file"]="size:$size"
         fi
         
-        # 比对日志与存档文件夹的最新楼层
-        compare_log_with_archives "$file" "$count"
+        # 根据INITIAL_SCAN_ARCHIVE设置决定是否执行compare_log_with_archives
+        if [ "$INITIAL_SCAN_ARCHIVE" -ne 0 ]; then
+            compare_log_with_archives "$file" "$count"
+        fi
     done
     
     # 保存记录
@@ -1061,6 +1065,12 @@ compare_log_with_archives() {
     # 如果是初始扫描且没有找到任何存档，且设置为不生成存档，跳过处理
     if [ "$INITIAL_SCAN" -eq 1 ] && [ "$latest_floor" -eq 0 ] && [ "$INITIAL_SCAN_ARCHIVE" -eq 0 ]; then
         echo "初始扫描，无本地存档，且设置为不生成存档，跳过 $file 的存档生成"
+        return
+    fi
+    
+    # 如果是初始扫描且没有找到任何存档，且设置为执行compare_log_with_archives但不生成新存档
+    if [ "$INITIAL_SCAN" -eq 1 ] && [ "$latest_floor" -eq 0 ] && [ "$INITIAL_SCAN_ARCHIVE" -eq 1 ]; then
+        echo "初始扫描，无本地存档，且设置为不生成新存档，跳过 $file 的存档生成"
         return
     fi
     
@@ -3633,7 +3643,9 @@ settings_menu() {
         echo -e "2. 回退处理 (当前机制为: $([ "$ROLLBACK_MODE" -eq 1 ] && echo "删除重写仅保留最新档" || echo "删除重写保留每个档"))"
         echo "3. 自定义规则"
         echo -e "4. 修改用户名 (当前用户名: \033[33m${USERNAME}\033[0m)"
-        echo -e "5. 初始扫描设置 (当前设置: $([ "$INITIAL_SCAN_ARCHIVE" -eq 1 ] && echo "比对存档" || echo "不比对存档"))"
+        echo -e "5. 初始扫描设置 (当前设置: $([ "$INITIAL_SCAN_ARCHIVE" = "0" ] && echo "仅记录行数，不比对存档" || \
+                [ "$INITIAL_SCAN_ARCHIVE" = "1" ] && echo "记录并比对存档（\033[33m没有存档时不生成新存档\033[0m）" || \
+                echo "记录并比对存档（\033[33m没有存档时生成新存档\033[0m）"))"
         echo "6. 返回主菜单"
         echo -n "选择: "
         choice=$(get_single_key)
@@ -3669,22 +3681,30 @@ settings_menu() {
 # 初始扫描设置菜单
 initial_scan_menu() {
     clear
+    echo -e "\033[32m按Ctrl+C退出程序\033[0m"
     echo "===== 初始扫描设置 ====="
-    echo "当初次扫描聊天记录时，如何处理："
-    echo "1. 仅记录不比对存档 (推荐)"
-    echo "2. 记录并比对存档（耗时较长）"
-    echo -n "请选择 [1/2]: "
+    echo -e "当前设置: $([ "$INITIAL_SCAN_ARCHIVE" = "0" ] && echo "仅记录行数，不比对存档" || \
+                    [ "$INITIAL_SCAN_ARCHIVE" = "1" ] && echo "记录并比对存档（\033[33m没有存档时不生成新存档\033[0m）" || \
+                    echo "记录并比对存档（\033[33m没有存档时生成新存档\033[0m）")"
+    echo "1. 仅记录行数，不比对存档（推荐）"
+    echo "2. 记录并比对存档（\033[33m没有存档时不生成新存档\033[0m）（耗时较长）"
+    echo "3. 记录并比对存档（\033[33m没有存档时生成新存档\033[0m）（耗时最长）"
+    echo -n "请选择 [1/2/3]: "
     choice=$(get_single_key)
     echo "$choice"
     
     case "$choice" in
         1)
             INITIAL_SCAN_ARCHIVE=0
-            echo "已设置为初始扫描不生成存档"
+            echo "已设置为: 仅记录行数，不比对存档"
             ;;
         2)
             INITIAL_SCAN_ARCHIVE=1
-            echo "已设置为初始扫描生成存档"
+            echo "已设置为: 记录并比对存档（\033[33m没有存档时不生成新存档\033[0m）"
+            ;;
+        3)
+            INITIAL_SCAN_ARCHIVE=2
+            echo "已设置为: 记录并比对存档（\033[33m没有存档时生成新存档\033[0m）"
             ;;
         *)
             echo "无效选择，未做更改"
