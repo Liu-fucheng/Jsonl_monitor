@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# 脚本文件名
+shellname="jsonl.sh"
+
 # 脚本版本
 VERSION="1.4.0"
 
@@ -5827,7 +5830,7 @@ main_menu() {
         echo "6. 压缩全部聊天存档"
         echo "7. 导入聊天记录进酒馆"
         echo "8. 退出"
-
+        echo ""
         echo -n "选择: "
         choice=$(get_single_key)
         echo "$choice"
@@ -5944,16 +5947,16 @@ update_version_info() {
         if [ $? -eq 0 ]; then
             # 从脚本中提取版本号 - 同时支持"版本："和"当前版本："两种格式
             local remote_version
-            remote_version=$(grep -o "当前版本：[0-9.]*" jsonl.sh | cut -d'：' -f2 2>/dev/null)
+            remote_version=$(grep -o "当前版本：[0-9.]*" ${shellname} | cut -d'：' -f2 2>/dev/null)
             
             # 如果找不到"当前版本："格式，尝试旧格式"版本："
             if [ -z "$remote_version" ]; then
-                remote_version=$(grep -o "版本：[0-9.]*" jsonl.sh | cut -d'：' -f2 2>/dev/null)
+                remote_version=$(grep -o "版本：[0-9.]*" ${shellname} | cut -d'：' -f2 2>/dev/null)
             fi
             
             # 如果还是找不到，尝试简单地查找版本格式 x.y.z
             if [ -z "$remote_version" ]; then
-                remote_version=$(grep -o "VERSION=\"[0-9.]*\"" jsonl.sh | grep -o "[0-9.]*" 2>/dev/null)
+                remote_version=$(grep -o "VERSION=\"[0-9.]*\"" ${shellname} | grep -o "[0-9.]*" 2>/dev/null)
             fi
             
             if [ -n "$remote_version" ]; then
@@ -6068,8 +6071,8 @@ update_script() {
      echo "从 GitHub 下载最新代码..."
      if [ "$country_code" = "CN" ] && [[ ! "$disable_proxy" =~ ^[Yy]$ ]]; then
          # 中国用户且未禁用代理时，使用curl直接下载
-         echo "正在使用curl直接下载jsonl.sh..."
-         local raw_url="https://raw.githubusercontent.com/${GITHUB_REPO}/main/jsonl.sh"
+         echo "正在使用curl直接下载${shellname}..."
+         local raw_url="https://raw.githubusercontent.com/${GITHUB_REPO}/main/${shellname}"
          local proxy_url="${GH_FAST}${raw_url#https://}"
          curl -O "${proxy_url}"
          if [ $? -eq 0 ]; then
@@ -6097,10 +6100,10 @@ update_script() {
          echo "下载成功，正在更新脚本..."
  
          # 确保脚本有执行权限
-         chmod +x jsonl.sh
+         chmod +x ${shellname}
  
          # 复制到脚本目录
-         cp -f jsonl.sh "$SCRIPT_DIR/"
+         cp -f ${shellname} "$SCRIPT_DIR/"
  
          # 删除临时目录
          cd "$SCRIPT_DIR"
@@ -6113,7 +6116,7 @@ update_script() {
          read -p "现在重启脚本吗？(y/n): " restart
          if [ "$restart" = "y" ] || [ "$restart" = "Y" ]; then
              echo "重启脚本..."
-             exec bash "$SCRIPT_DIR/jsonl.sh"
+             exec bash "$SCRIPT_DIR/${shellname}"
          fi
      else
          echo "更新失败，请检查网络连接或手动下载。"
