@@ -18,7 +18,6 @@ RULES_FILE="${LOG_DIR}/rules.txt"
 # GitHub相关设置
 GH_FAST="https://ghfast.top/"
 GITHUB_REPO="Liu-fucheng/Jsonl_monitor"
-BETA_REPO="Liu-fucheng/JSONL_beta"
 GH_DOWNLOAD_URL_BASE="https://github.com/${GITHUB_REPO}/raw/main"
 
 # 默认配置
