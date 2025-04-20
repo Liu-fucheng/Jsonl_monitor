@@ -9,7 +9,7 @@ Jsonl.sh是为SillyTavern写的自动存档脚本，可以设置“保留特定�
 ## 安装及更新
 
 ### 安装
-
+----
 在termux输入：
 
 * 直连：`git clone "https://github.com/Liu-fucheng/Jsonl_monitor.git"`
