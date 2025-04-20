@@ -339,14 +339,14 @@ should_save_floor() {
     local char_name=$(echo "$rel_path" | cut -d'/' -f1)
     local chat_id=$(echo "$rel_path" | cut -d'/' -f2)
     
-    # 首先检查是否有"只保留最高楼层"规则适用
+    # 首先检查是否有"只保留最新楼层"规则适用
     local latest_only_rule_found=0
     
-    # 检查全局规则中的"只保留最高楼层"规则
+    # 检查全局规则中的"只保留最新楼层"规则
     for rule in "${GLOBAL_RULES[@]}"; do
         read -r rule_type params <<< $(parse_rule "$rule")
         if [ "$rule_type" = "latest_above" ] && [ "$floor" -ge "$params" ]; then
-            # 如果是"只保留最高楼层"规则且适用于当前楼层
+            # 如果是"只保留最新楼层"规则且适用于当前楼层
             # 只有最高楼层才保留
             if [ "$floor" -eq "$latest_floor" ]; then
                 return 0
@@ -356,7 +356,7 @@ should_save_floor() {
         fi
     done
     
-    # 检查角色规则中的"只保留最高楼层"规则
+    # 检查角色规则中的"只保留最新楼层"规则
     if [ -n "${CHAR_RULES[$char_name]}" ]; then
         local rule="${CHAR_RULES[$char_name]}"
         read -r rule_type params <<< $(parse_rule "$rule")
@@ -369,7 +369,7 @@ should_save_floor() {
         fi
     fi
     
-    # 检查聊天记录规则中的"只保留最高楼层"规则
+    # 检查聊天记录规则中的"只保留最新楼层"规则
     if [ -n "${CHAT_RULES["$char_name/$chat_id"]}" ]; then
         local rule="${CHAT_RULES["$char_name/$chat_id"]}"
         read -r rule_type params <<< $(parse_rule "$rule")
@@ -382,7 +382,7 @@ should_save_floor() {
         fi
     fi
     
-    # 如果没有"只保留最高楼层"规则适用，再检查其他规则
+    # 如果没有"只保留最新楼层"规则适用，再检查其他规则
     
     # 检查是否有适用的聊天记录规则
     if [ -n "${CHAT_RULES["$char_name/$chat_id"]}" ]; then
@@ -403,7 +403,7 @@ should_save_floor() {
     # 检查是否有适用的全局规则
     for rule in "${GLOBAL_RULES[@]}"; do
         read -r rule_type _ <<< $(parse_rule "$rule")
-        # 跳过已处理的"只保留最高楼层"规则
+        # 跳过已处理的"只保留最新楼层"规则
         if [ "$rule_type" != "latest_above" ] && apply_rule "$floor" "$latest_floor" "$rule"; then
             return 0
         fi
@@ -2545,16 +2545,16 @@ display_rule() {
         "interval_above")
             IFS=',' read -r min_floor range interval <<< "$params"
             if [ "$mode" = "compact" ]; then
-                echo -e "\033[33m${min_floor}楼以上只保存最近${range}楼内${interval}的倍数\033[0m"
+                echo -e "\033[33m${min_floor}楼以上只保留最近${range}楼内${interval}的倍数\033[0m"
             else
-                echo -e "$index. \033[33m${min_floor}楼以上只保存最近${range}楼内${interval}的倍数\033[0m"
+                echo -e "$index. \033[33m${min_floor}楼以上只保留最近${range}楼内${interval}的倍数\033[0m"
             fi
             ;;
         "latest_above")
             if [ "$mode" = "compact" ]; then
-                echo -e "\033[33m${params}楼以上只保留最高楼层\033[0m"
+                echo -e "\033[33m${params}楼以上只保留最新楼层\033[0m"
             else
-                echo -e "$index. \033[33m${params}楼以上只保留最高楼层\033[0m"
+                echo -e "$index. \033[33m${params}楼以上只保留最新楼层\033[0m"
             fi
             ;;
         *)
@@ -3445,14 +3445,14 @@ add_rule() {
     local target="$2"      # 角色名或聊天记录路径
     
     echo "规则模板:"
-    echo "1. __楼以上只保存最近__楼内__的倍数"
-    echo "2. __楼以上只保留最高楼层"
+    echo "1. __楼以上只保留最近__楼内__的倍数"
+    echo "2. __楼以上只保留最新楼层"
     echo -n "选择规则模板(1/2): "
     choice=$(get_single_key)
     echo "$choice"
     
     if [ "$choice" = "1" ]; then
-        # __楼以上只保存最近__楼内__的倍数
+        # __楼以上只保留最近__楼内__的倍数
         echo -n "请输入三个参数(用逗号或空格分隔): "
         read -r params
         
@@ -3497,7 +3497,7 @@ add_rule() {
         press_any_key
         
     elif [ "$choice" = "2" ]; then
-        # __楼以上只保留最高楼层
+        # __楼以上只保留最新楼层
         echo -n "请输入起始楼层: "
         read -r min_floor
         
@@ -3553,7 +3553,7 @@ edit_rule() {
         local range="${args[1]}"
         local interval="${args[2]}"
         
-        echo "当前规则: ${min_floor}楼以上只保存最近${range}楼内${interval}的倍数"
+        echo "当前规则: ${min_floor}楼以上只保留最近${range}楼内${interval}的倍数"
         echo -n "请输入新的三个参数(用逗号或空格分隔): "
         read -r params
         
@@ -3597,7 +3597,7 @@ edit_rule() {
         # 处理latest_above:格式
         local min_floor="${rule#latest_above:}"
         
-        echo "当前规则: ${min_floor}楼以上只保留最高楼层"
+        echo "当前规则: ${min_floor}楼以上只保留最新楼层"
         echo -n "请输入新的起始楼层: "
         read -r new_min_floor
         
@@ -3627,7 +3627,7 @@ edit_rule() {
         local range="${args[1]}"
         local interval="${args[2]}"
         
-        echo "当前规则: ${min_floor}楼以上只保存最近${range}楼内${interval}的倍数"
+        echo "当前规则: ${min_floor}楼以上只保留最近${range}楼内${interval}的倍数"
         echo -n "请输入新的三个参数(用逗号或空格分隔): "
         read -r params
         
@@ -3671,7 +3671,7 @@ edit_rule() {
         # 处理空格分隔的latest_above格式
         local min_floor="${rule#latest_above }"
         
-        echo "当前规则: ${min_floor}楼以上只保留最高楼层"
+        echo "当前规则: ${min_floor}楼以上只保留最新楼层"
         echo -n "请输入新的起始楼层: "
         read -r new_min_floor
         
@@ -3708,7 +3708,7 @@ edit_rule() {
             local range="${args[1]}"
             local interval="${args[2]}"
             
-            echo "当前规则: ${min_floor}楼以上只保存最近${range}楼内${interval}的倍数"
+            echo "当前规则: ${min_floor}楼以上只保留最近${range}楼内${interval}的倍数"
             echo -n "请输入新的三个参数(用逗号或空格分隔): "
             read -r params
             
@@ -3751,7 +3751,7 @@ edit_rule() {
         elif [ "$rule_type" = "latest_above" ]; then
             local min_floor="$params"
             
-            echo "当前规则: ${min_floor}楼以上只保留最高楼层"
+            echo "当前规则: ${min_floor}楼以上只保留最新楼层"
             echo -n "请输入新的起始楼层: "
             read -r new_min_floor
             
@@ -3837,7 +3837,7 @@ rollback_menu() {
     while true; do
         clear
         echo -e "\033[32m按Ctrl+C退出程序\033[0m"
-        echo "===== 回退处理 ====="
+        echo "===== 回退处理选择 ====="
         echo -e "当前机制为: $([ "$ROLLBACK_MODE" -eq 1 ] && echo "删除重写仅保留最新档" || echo "删除重写保留每个档 (注意：删除前的楼层无论是否是\033[33m${SAVE_INTERVAL}\033[0m的倍数楼都进行保留)")"
         echo "1. 删除重写仅保留最新档"
         echo -e "2. 删除重写保留每个档 (注意：删除前的楼层无论是否是\033[33m${SAVE_INTERVAL}\033[0m的倍数楼都进行保留)"
@@ -3892,7 +3892,7 @@ settings_menu() {
         echo -e "\033[32m按Ctrl+C退出程序\033[0m"
         echo "===== 设置 ====="
         echo -e "1. 保留机制选择 (当前机制为: $([ "$SAVE_MODE" = "interval" ] && echo "保留\033[33m${SAVE_INTERVAL}\033[0m的倍数和最新楼层" || echo "仅保留最新楼层"))"
-        echo -e "2. 回退处理 (当前机制为: $([ "$ROLLBACK_MODE" -eq 1 ] && echo "删除重写仅保留最新档" || echo "删除重写保留每个档"))"
+        echo -e "2. 回退处理选择 (当前机制为: $([ "$ROLLBACK_MODE" -eq 1 ] && echo "删除重写仅保留最新档" || echo "删除重写保留每个档"))"
         echo "3. 自定义规则"
         echo -e "4. 修改用户名 (当前用户名: \033[33m${USERNAME}\033[0m)"
         
