@@ -53,13 +53,6 @@ declare -A CHAR_RULES
 # 聊天记录局部规则
 declare -A CHAT_RULES
 
-# 检查依赖项，不需要jq了
-check_dependencies() {
-    # 不再需要检查jq
-    return 0
-}
-
-
 # 加载配置
 load_config() {
     if [ -f "$CONFIG_FILE" ]; then
@@ -6221,9 +6214,6 @@ main() {
     # 设置信号处理
     trap 'cleanup_on_exit SIGINT; exit 0' SIGINT
     trap 'cleanup_on_exit; exit 0' SIGTERM SIGHUP EXIT
-    
-    # 检查依赖
-    check_dependencies
     
     # 加载配置
     load_config
