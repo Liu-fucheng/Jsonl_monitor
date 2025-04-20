@@ -12,7 +12,7 @@ Jsonl.sh是为SillyTavern写的自动存档脚本，只支持安卓，可以设�
 
 在termux输入：
 
-* 直连：`git clone "https://github.com/Liu-fucheng/Jsonl_monitor.git"`
+* 直连：`curl -O https://raw.githubusercontent.com/Liu-fucheng/Jsonl_monitor/main/jsonl.sh"`
 * 国内源：`curl -O "https://ghproxy.com/raw.githubusercontent.com/Liu-fucheng/Jsonl_monitor/main/jsonl.sh"`
 
 ### 更新
