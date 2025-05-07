@@ -2930,9 +2930,9 @@ archive_count_menu(){
     echo "3. 返回主菜单"
     echo
     read -n 1 -p "选择: " choice
-    echo
     case "$choice" in
       1)
+        echo
         while true; do
           read -p "请输入存档位个数（回车确认，直接回车取消）: " SAVE_ARCHIVE_COUNT
           if [[ "$SAVE_ARCHIVE_COUNT" =~ ^[0-9]+$ ]]; then
@@ -2953,6 +2953,7 @@ archive_count_menu(){
         break
         ;;
       2)
+        echo
         SAVE_ARCHIVE_COUNT="infinite"
         save_config
         echo "已设置为: 无限存档位"
