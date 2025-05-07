@@ -2927,10 +2927,10 @@ archive_count_menu(){
   echo "1. 输入个数"
   echo "2. 无限"
   echo "3. 返回主菜单"
-  echo
-  read -n 1 -p "选择: " choice
-  echo
-  case "$choice" in
+  while true; do  
+    read -n 1 -p "选择: " choice
+    echo
+    case "$choice" in
     1)
       while true; do
         read -p "请输入存档位个数（回车确认，直接回车取消）: " SAVE_ARCHIVE_COUNT
@@ -2943,18 +2943,20 @@ archive_count_menu(){
         elif [ -z "$SAVE_ARCHIVE_COUNT" ]; then
           echo "取消操作"
           press_any_key
-          return
+          break
         else
           echo "无效输入"
           press_any_key
         fi
       done
+      break
       ;;
     2)
       SAVE_ARCHIVE_COUNT="infinite"
       save_config
       echo "已设置为: 无限存档位"
       press_any_key
+      break
       ;;
     3)
       return
@@ -2963,7 +2965,8 @@ archive_count_menu(){
       echo "无效选择"
       press_any_key
       ;;
-  esac
+    esac
+  done
 }
 
 #初始扫描设置
@@ -2971,31 +2974,40 @@ initial_scan_menu(){
   clear
   exit_prompt
   echo "===== 初始扫描设置 ====="
-  echo -e "当前设置: $([ "$INITIAL_SCAN_ARCHIVE" = "0" ] && echo "仅记录行数，不比对存档" || ([ "$INITIAL_SCAN_ARCHIVE" = "1" ] && echo "记录并比对存档（没有存档时${YELLOW}不生成${RESET}新存档）" || echo "记录并比对存档（没有存档时${YELLOW}生成${RESET}新存档）")))"
+  echo -e "当前设置: $([ "$INITIAL_SCAN_ARCHIVE" = "0" ] && echo "仅记录行数，不比对存档" || ([ "$INITIAL_SCAN_ARCHIVE" = "1" ] && echo "记录并比对存档（没有存档时${YELLOW}不生成${RESET}新存档）" || echo "记录并比对存档（没有存档时${YELLOW}生成${RESET}新存档）"))"
   echo "========================"
   echo "1. 仅记录行数，不比对存档"
   echo -e "2. 记录并比对存档（没有存档时${YELLOW}不生成${RESET}新存档）"
   echo -e "3. 记录并比对存档（没有存档时${YELLOW}生成${RESET}新存档）"
-  echo
-  read -n 1 -p "选择: " choice
-  
-  case "$choice" in
-    1)
-      INITIAL_SCAN_ARCHIVE=0
-      echo "已设置为: 仅记录行数，不比对存档"
-      ;;
-    2)
-      INITIAL_SCAN_ARCHIVE=1
-      echo -e "已设置为: 记录并比对存档（没有存档时${YELLOW}不生成${RESET}新存档）"
-      ;;
-    3)
-      INITIAL_SCAN_ARCHIVE=2
-      echo -e "已设置为: 记录并比对存档（没有存档时${YELLOW}生成${RESET}新存档）"
-      ;;
-    *)
-      echo "无效选择"
-      ;;
-  esac
+  echo -e "4. 返回主菜单"
+  echo 
+  while true; do
+    read -n 1 -p "选择: " choice
+    case "$choice" in
+      1)
+        INITIAL_SCAN_ARCHIVE=0
+        echo "已设置为: 仅记录行数，不比对存档"
+        break
+        ;;
+      2)
+        INITIAL_SCAN_ARCHIVE=1
+        echo -e "已设置为: 记录并比对存档（没有存档时${YELLOW}不生成${RESET}新存档）"
+        break
+        ;;
+      3)
+        INITIAL_SCAN_ARCHIVE=2
+        echo -e "已设置为: 记录并比对存档（没有存档时${YELLOW}生成${RESET}新存档）"
+        break
+        ;;
+      4)
+        return
+        ;;
+      *)
+        echo "无效选择"
+        press_any_key
+        ;;
+    esac
+  done
   save_config
   press_any_key
 }
