@@ -2978,7 +2978,6 @@ initial_scan_menu(){
     exit_prompt
     echo "===== 初始扫描设置 ====="
     echo -e "当前设置: $([ "$INITIAL_SCAN_ARCHIVE" = "0" ] && echo "仅记录行数，不比对存档" || ([ "$INITIAL_SCAN_ARCHIVE" = "1" ] && echo "记录并比对存档（没有存档时${YELLOW}不生成${RESET}新存档）" || echo "记录并比对存档（没有存档时${YELLOW}生成${RESET}新存档）"))"
-    echo "========================"
     echo "1. 仅记录行数，不比对存档"
     echo -e "2. 记录并比对存档（没有存档时${YELLOW}不生成${RESET}新存档）"
     echo -e "3. 记录并比对存档（没有存档时${YELLOW}生成${RESET}新存档）"
